@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>skydo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    min-height: 100dvh; display: flex; align-items: center; justify-content: center;
+    padding: 16px; font-family: system-ui, -apple-system, sans-serif; color: #fff;
+    background: radial-gradient(circle at 20% 10%, #3b5bdb 0%, #1a1446 55%, #0b0820 100%);
+  }
+  .card {
+    width: 100%; max-width: 420px; padding: 28px 22px; border-radius: 24px;
+    background: rgba(255,255,255,.08); backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,.15); box-shadow: 0 20px 60px rgba(0,0,0,.4);
+  }
+  h1 { font-size: 34px; letter-spacing: -1px; margin-bottom: 4px; }
+  h1 span { color: #ffd43b; }
+  .sub { opacity: .75; margin-bottom: 22px; }
+  input {
+    width: 100%; font-size: 22px; padding: 16px; border-radius: 14px; border: none;
+    background: rgba(255,255,255,.95); color: #1a1446; outline: none;
+  }
+  button {
+    width: 100%; margin-top: 12px; font-size: 22px; font-weight: 700; padding: 16px;
+    border: none; border-radius: 14px; cursor: pointer; color: #1a1446;
+    background: linear-gradient(90deg, #ffd43b, #ff922b); transition: transform .1s;
+  }
+  button:active { transform: scale(.97); }
+  button:disabled { opacity: .5; }
+  .status { min-height: 24px; margin-top: 14px; text-align: center; font-weight: 600; }
+  .ok { color: #8ce99a; } .err { color: #ff8787; }
+  .link { margin-top: 18px; text-align: center; font-size: 14px; opacity: .6; text-decoration: underline; cursor: pointer; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>sky<span>do</span></h1>
+
+  <div id="join">
+    <p class="sub">Come ti chiami?</p>
+    <form id="joinForm">
+      <input id="name" maxlength="30" autocomplete="nickname" placeholder="Il tuo nome" required>
+      <button>Entra</button>
+    </form>
+  </div>
+
+  <div id="play" class="hidden">
+    <p class="sub">Ciao <b id="who"></b>, scrivi la risposta!</p>
+    <form id="answerForm">
+      <input id="answer" maxlength="200" autocomplete="off" placeholder="Risposta" required>
+      <button id="send">Invia</button>
+    </form>
+    <p class="link" id="rename">Non sei tu? Cambia nome</p>
+  </div>
+
+  <p class="status" id="status"></p>
+</div>
+
+<script>
+  const topic = new URLSearchParams(location.search).get("t") || "";
+  const $ = (id) => document.getElementById(id);
+  const store = {
+    get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+    set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+  };
+  let id = store.get("skydo-id");
+  if (!id) { id = Math.random().toString(36).slice(2, 10); store.set("skydo-id", id); }
+  let name = store.get("skydo-name");
+
+  function status(text, cls) { $("status").textContent = text; $("status").className = "status " + (cls || ""); }
+
+  async function publish(payload) {
+    const resp = await fetch("https://ntfy.sh/" + topic, { method: "POST", body: JSON.stringify({ id, name, ...payload }) });
+    if (!resp.ok) throw new Error(resp.status);
+  }
+
+  function showPlay() {
+    $("join").classList.add("hidden");
+    $("play").classList.remove("hidden");
+    $("who").textContent = name;
+    $("answer").focus();
+  }
+
+  $("joinForm").onsubmit = async (e) => {
+    e.preventDefault();
+    name = $("name").value.trim();
+    if (!name) return;
+    store.set("skydo-name", name);
+    try { await publish({ type: "join" }); status(""); } catch { status("Connessione non riuscita, riprova", "err"); return; }
+    showPlay();
+  };
+
+  $("answerForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const answer = $("answer").value.trim();
+    if (!answer) return;
+    $("send").disabled = true;
+    try {
+      await publish({ type: "answer", answer });
+      $("answer").value = "";
+      status("Inviata: " + answer, "ok");
+    } catch { status("Invio non riuscito, riprova", "err"); }
+    $("send").disabled = false;
+    $("answer").focus();
+  };
+
+  $("rename").onclick = () => {
+    $("play").classList.add("hidden");
+    $("join").classList.remove("hidden");
+    $("name").value = name || "";
+    $("name").focus();
+  };
+
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(topic)) {
+    $("join").classList.add("hidden");
+    status("QR non valido: manca la sessione", "err");
+  } else if (name) {
+    showPlay();
+  }
+</script>
+</body>
+</html>
