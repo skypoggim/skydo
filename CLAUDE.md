@@ -12,6 +12,7 @@ Dietro c'è `server.py` su Render free (`render.yaml`, `https://skydo.onrender.c
 ## Come funziona
 
 - API: `POST /msg` (telefoni: join/answer), `GET /msg?since=&key=` (conduttore), `POST /login|/question|/reset` con `{key}`.
+- Regole applicate dal server (409 + messaggio sul telefono): nomi unici (case/spazi ignorati, il nome resta di chi l'ha preso per primo fino al reset), niente risposte prima della prima domanda, una sola risposta per giocatore per domanda (vale la prima). Una risposta vale per la domanda in corso quando arriva: chi salta la domanda 1 e risponde dopo il via della 2 risponde alla 2. `/question` riceve il numero di domanda dal conduttore, così il server resta allineato anche dopo un riavvio.
 - Il server timbra ogni messaggio con ora e numero progressivo: la domanda a cui appartiene una risposta e i `secondi` (ora risposta − ora domanda) dipendono solo dall'orologio del server.
 - `epoch` cambia a ogni reset/riavvio: se cambia senza un reset chiesto dal conduttore (Render riavviato), `host.html` tiene risposte e classifica già ricevute e continua.
 - Correttezza e classifica sono calcolate in `host.html` da `quiz.json` (`[{domanda, risposte: [...]}]`), pushato nel repo pubblico per semplicità (scelta consapevole). Confronto normalizzando maiuscole/accenti/punteggiatura. Classifica: vittorie (primo ✓ per domanda), a parità meno secondi totali.

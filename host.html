@@ -342,7 +342,7 @@
     next.disabled = true;
     next.textContent = "…";
     try {
-      await post("/question", { key });
+      await post("/question", { key, n: state.n + 1 });
       while (pollBusy) await new Promise((resolve) => setTimeout(resolve, 50));
       await poll();
     } catch (error) { $("gameError").textContent = "Domanda non partita: " + error.message; }

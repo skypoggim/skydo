@@ -93,9 +93,21 @@
 
   function status(text, cls) { $("status").textContent = text; $("status").className = "status " + (cls || ""); }
 
-  async function publish(payload) {
-    const resp = await fetch(SERVER + "/msg", { method: "POST", body: JSON.stringify({ id, name, ...payload }) });
-    if (!resp.ok) throw new Error(resp.status);
+  // risponde {ok, error, domanda}; error = name_taken | not_started | already_answered | network
+  async function publish(payload, who = name) {
+    try {
+      const resp = await fetch(SERVER + "/msg", { method: "POST", body: JSON.stringify({ id, name: who, ...payload }) });
+      const data = await resp.json().catch(() => ({}));
+      return resp.ok ? { ok: true, ...data } : { ok: false, error: data.error || "network", ...data };
+    } catch { return { ok: false, error: "network" }; }
+  }
+
+  function showJoin(message) {
+    $("play").classList.add("hidden");
+    $("join").classList.remove("hidden");
+    $("name").value = name || "";
+    $("name").focus();
+    status(message || "", "err");
   }
 
   function showPlay() {
@@ -105,12 +117,18 @@
     $("answer").focus();
   }
 
+  const NAME_TAKEN = "Questo nome è già usato da un altro giocatore, scegline un altro";
+
   $("joinForm").onsubmit = async (e) => {
     e.preventDefault();
-    name = $("name").value.trim();
-    if (!name) return;
+    const candidate = $("name").value.trim();
+    if (!candidate) return;
+    status("Entro…");
+    const result = await publish({ type: "join" }, candidate);
+    if (!result.ok) return status(result.error === "name_taken" ? NAME_TAKEN : "Connessione non riuscita, riprova", "err");
+    name = candidate;
     store.set("skydo-name", name);
-    try { await publish({ type: "join" }); status(""); } catch { status("Connessione non riuscita, riprova", "err"); return; }
+    status("");
     showPlay();
   };
 
@@ -120,25 +138,29 @@
     if (!answer) return;
     $("send").disabled = true;
     status("Invio…");
-    try {
-      await publish({ type: "answer", answer });
-      $("answer").value = "";
-      status("Inviata: " + answer, "ok");
-    } catch { status("Invio non riuscito, riprova", "err"); }
+    const result = await publish({ type: "answer", answer });
     $("send").disabled = false;
+    if (result.ok) {
+      $("answer").value = "";
+      status(`Risposta alla domanda ${result.domanda} inviata: ${answer}`, "ok");
+    } else if (result.error === "already_answered") {
+      status(`Hai già risposto alla domanda ${result.domanda}`, "err");
+    } else if (result.error === "not_started") {
+      status("La domanda non è ancora partita, aspetta il via", "err");
+    } else if (result.error === "name_taken") {
+      showJoin(NAME_TAKEN);
+    } else {
+      status("Invio non riuscito, riprova", "err");
+    }
     $("answer").focus();
   };
 
-  $("rename").onclick = () => {
-    $("play").classList.add("hidden");
-    $("join").classList.remove("hidden");
-    $("name").value = name || "";
-    $("name").focus();
-  };
+  $("rename").onclick = () => showJoin();
 
   if (name) {
     showPlay();
-    publish({ type: "join" }).catch(() => {});  // si ripresenta al conduttore (es. dopo un reset)
+    // si ripresenta al conduttore (es. dopo un reset); se nel frattempo il nome è stato preso, ne chiede un altro
+    publish({ type: "join" }).then((result) => { if (result.error === "name_taken") showJoin(NAME_TAKEN); });
   }
 </script>
 </body>

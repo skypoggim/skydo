@@ -1,8 +1,9 @@
 """Server minimo di skydo (Render): una sola partita in memoria, condotta da chi conosce HOST_KEY.
 
 POST /msg                   messaggio dei telefoni {id, name, type: join|answer, answer}
+                            409 se: nome già preso da un altro id, domanda non partita, già risposto a questa domanda
 GET  /msg?since=N&key=K     {epoch, messages}: messaggi con seq > N, solo conduttore
-POST /login | /question | /reset   {"key": K}: verifica chiave, avvia domanda, azzera la partita
+POST /login | /question | /reset   {"key": K[, "n": domanda]}: verifica chiave, avvia domanda, azzera la partita
 `epoch` cambia a ogni reset o riavvio, così il conduttore sa che la numerazione è ripartita.
 """
 import hmac
@@ -18,12 +19,32 @@ HOST_KEY = os.environ.get("HOST_KEY", "")
 MAX_BODY = 2000
 MAX_MESSAGES = 50000
 
-_game = {"epoch": secrets.token_hex(4), "messages": []}
+
+def _new_game():
+    # n = domanda in corso, answered = (domanda, id) già risposti, names = nome normalizzato -> id
+    return {"epoch": secrets.token_hex(4), "messages": [], "n": 0, "answered": set(), "names": {}, "ids": {}}
+
+
+_game = _new_game()
 _lock = threading.Lock()
 
 
 def _is_host(key):
     return bool(HOST_KEY) and hmac.compare_digest(str(key), HOST_KEY)
+
+
+def _register(player_id, name):
+    """Associa il nome all'id; False se il nome è già di un altro giocatore."""
+    norm = " ".join(name.lower().split())
+    owner = _game["names"].get(norm)
+    if owner and owner != player_id:
+        return False
+    old = _game["ids"].get(player_id)
+    if old and old != norm:
+        _game["names"].pop(old, None)
+    _game["names"][norm] = player_id
+    _game["ids"][player_id] = norm
+    return True
 
 
 def _append(payload):
@@ -76,19 +97,31 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(400)
         with _lock:
             if path == "/msg":
-                if payload.get("type") not in ("join", "answer"):
+                player_id, name = str(payload.get("id", ""))[:40], str(payload.get("name", "")).strip()[:30]
+                if payload.get("type") not in ("join", "answer") or not player_id or not name:
                     return self._send(400)
+                if not _register(player_id, name):
+                    return self._send(409, {"error": "name_taken"})
+                n = _game["n"]
+                if payload["type"] == "answer":
+                    if not n:
+                        return self._send(409, {"error": "not_started"})
+                    if (n, player_id) in _game["answered"]:
+                        return self._send(409, {"error": "already_answered", "domanda": n})
+                    _game["answered"].add((n, player_id))
                 payload.pop("key", None)
                 seq = _append(payload)
-                return self._send(200, {"seq": seq}) if seq else self._send(429)
+                return self._send(200, {"seq": seq, "domanda": n}) if seq else self._send(429)
             if path not in ("/login", "/question", "/reset"):
                 return self._send(404)
             if not _is_host(payload.get("key", "")):
                 return self._send(403, {"error": "chiave errata" if HOST_KEY else "HOST_KEY non impostata sul server"})
             if path == "/question":
+                # il conduttore manda il numero, così resta allineato anche dopo un riavvio del server
+                _game["n"] = int(payload.get("n") or _game["n"] + 1)
                 _append({"type": "question"})
             elif path == "/reset":
-                _game.update(epoch=secrets.token_hex(4), messages=[])
+                _game.update(_new_game())
             self._send(200, {"epoch": _game["epoch"]})
 
     def log_message(self, *args):
