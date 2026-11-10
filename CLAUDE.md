@@ -2,24 +2,20 @@
 
 Quiz tra colleghi stile Mentimeter/Slido, ma con lo schermo fatto interamente in PowerPoint (es. tabellone tipo ruota della fortuna con lettere che si scoprono slide dopo slide). skydo serve solo a raccogliere le risposte da telefono: chi risponde giusto per primo vince.
 
-## Pezzi
+## I due link
 
-| File | Dove gira | Cosa fa |
-|---|---|---|
-| `index.html` | GitHub Pages (`https://skypoggim.github.io/skydo/?t=<sessione>`) | pagina giocatore: nome una volta (localStorage), poi solo risposte |
-| `host.html` | GitHub Pages (`.../skydo/host.html`), da laptop o telefono | pagina conduttore: legge `quiz.json` dal sito, crea la sessione, mostra/scarica il QR, "Domanda successiva", live ✓/✗/🏆, classifica, CSV |
-| `server.py` | Render free (`render.yaml`), `https://skydo.onrender.com` | stdlib senza dipendenze, sessioni in memoria |
-| `skydo.py` | terminale | stesso ruolo di `host.html`, per prove e analisi in pandas |
+- **Giocatori**: `https://skypoggim.github.io/skydo/` (`index.html`). QR fisso, va nella slide una volta per tutte. Nome chiesto una volta (localStorage), poi solo risposte; all'apertura si ripresenta al conduttore.
+- **Conduttore**: `https://skypoggim.github.io/skydo/host.html`. Chiave `HOST_KEY` chiesta una volta (localStorage). QR scaricabile, "▶ Domanda", Live ✓/✗/🏆, Classifica, Giocatori, CSV, Reset.
 
-URL del server: costante `SERVER` in `index.html` e `host.html`, `SERVER_URL` in `skydo.py`.
+Dietro c'è `server.py` su Render free (`render.yaml`, `https://skydo.onrender.com`): stdlib senza dipendenze, **una sola partita** in memoria. Env var `HOST_KEY` impostata nella dashboard Render (mai nel repo, che è pubblico). URL del server: costante `SERVER` in `index.html` e `host.html`.
 
 ## Come funziona
 
-- Il conduttore crea la sessione con una chiave segreta (`POST /<sessione>/host`). I telefoni pubblicano `{id, name, type: join|answer, answer}` su `POST /<sessione>`; leggere (`GET /<sessione>?since=&key=`) e lanciare le domande (`type: question`) richiede la chiave, così un giocatore non può spiare le risposte altrui.
+- API: `POST /msg` (telefoni: join/answer), `GET /msg?since=&key=` (conduttore), `POST /login|/question|/reset` con `{key}`.
 - Il server timbra ogni messaggio con ora e numero progressivo: la domanda a cui appartiene una risposta e i `secondi` (ora risposta − ora domanda) dipendono solo dall'orologio del server.
-- Correttezza e classifica sono calcolate lato conduttore. Il quiz è `quiz.json` (`[{domanda, risposte: [...]}]`), pushato nel repo pubblico per semplicità (scelta consapevole: soluzioni leggibili da chi le cerca, da rivedere se serve); per cambiarlo si modifica e si fa push. Confronto normalizzando maiuscole/accenti/punteggiatura.
-- Classifica: vittorie (primo ✓ per domanda), a parità meno secondi totali.
-- `host.html` salva sessione e chiave in localStorage: ricaricando la pagina rilegge tutto dal server. `skydo.py` idem con `--topic` + `--key`.
+- `epoch` cambia a ogni reset/riavvio: se cambia senza un reset chiesto dal conduttore (Render riavviato), `host.html` tiene risposte e classifica già ricevute e continua.
+- Correttezza e classifica sono calcolate in `host.html` da `quiz.json` (`[{domanda, risposte: [...]}]`), pushato nel repo pubblico per semplicità (scelta consapevole). Confronto normalizzando maiuscole/accenti/punteggiatura. Classifica: vittorie (primo ✓ per domanda), a parità meno secondi totali.
+- Ricaricando `host.html` la partita viene ricostruita dal server.
 - Ntfy.sh scartato: limiti per IP (250 msg/giorno, burst ~60) e in ufficio 100 telefoni escono dallo stesso IP.
 
 ## Stile
@@ -28,6 +24,5 @@ Coerente con dataday: font Sky Text in `assets/fonts/` (copiato da dataday) e pa
 
 ## Vincoli
 
-- Render free dorme dopo 15 min senza richieste (risveglio ~1 min, `host.html` lo sveglia all'apertura); il polling del conduttore lo tiene sveglio durante il gioco. Un riavvio azzera le sessioni: scaricare il CSV a fine partita.
-- Sessioni scadono dopo 24h di inattività.
-- `skydo.py` usa l'env conda `base` (`qrcode`, `pandas`, `requests`).
+- Render free dorme dopo 15 min senza richieste (risveglio ~1 min): aprire `host.html` qualche minuto prima, il suo polling lo tiene sveglio. Un riavvio svuota il server: a fine partita scaricare il CSV.
+- Una partita alla volta.

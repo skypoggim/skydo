@@ -1,30 +1,37 @@
-"""Server minimo di skydo (gira su Render): riceve i messaggi dei telefoni e li rende al conduttore.
+"""Server minimo di skydo (Render): una sola partita in memoria, condotta da chi conosce HOST_KEY.
 
-POST /<sessione>/host     {"key": K}: crea la sessione con chiave K (idempotente con la stessa K)
-POST /<sessione>          messaggio dei telefoni (join/answer); "question" solo con la chiave
-GET  /<sessione>?since=N&key=K   messaggi con seq > N in ordine di arrivo, solo per il conduttore
-Tutto in memoria: un riavvio azzera le sessioni.
+POST /msg                   messaggio dei telefoni {id, name, type: join|answer, answer}
+GET  /msg?since=N&key=K     {epoch, messages}: messaggi con seq > N, solo conduttore
+POST /login | /question | /reset   {"key": K}: verifica chiave, avvia domanda, azzera la partita
+`epoch` cambia a ogni reset o riavvio, così il conduttore sa che la numerazione è ripartita.
 """
+import hmac
 import json
 import os
-import re
+import secrets
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+HOST_KEY = os.environ.get("HOST_KEY", "")
 MAX_BODY = 2000
-MAX_MESSAGES = 20000
-SESSION_TTL = 24 * 3600
-PATH_RE = re.compile(r"^/([A-Za-z0-9_-]{1,64})(/host)?$")
+MAX_MESSAGES = 50000
 
-_sessions = {}
+_game = {"epoch": secrets.token_hex(4), "messages": []}
 _lock = threading.Lock()
 
 
-def _cleanup(now):
-    for name in [name for name, session in _sessions.items() if now - session["last"] > SESSION_TTL]:
-        del _sessions[name]
+def _is_host(key):
+    return bool(HOST_KEY) and hmac.compare_digest(str(key), HOST_KEY)
+
+
+def _append(payload):
+    if len(_game["messages"]) >= MAX_MESSAGES:
+        return None
+    seq = len(_game["messages"]) + 1
+    _game["messages"].append({"seq": seq, "time": time.time(), "message": json.dumps(payload)})
+    return seq
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -46,54 +53,43 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         if url.path == "/":
             return self._send(200, {"status": "ok"})
-        match = PATH_RE.match(url.path)
-        if not match or match[2]:
+        if url.path != "/msg":
             return self._send(404)
         query = parse_qs(url.query)
+        if not _is_host(query.get("key", [""])[0]):
+            return self._send(403)
         since = int(query.get("since", ["0"])[0] or 0)
         with _lock:
-            session = _sessions.get(match[1])
-            if not session:
-                return self._send(404, {"error": "sessione inesistente"})
-            if query.get("key", [""])[0] != session["key"]:
-                return self._send(403)
-            body = [message for message in session["messages"] if message["seq"] > since]
+            body = {"epoch": _game["epoch"], "messages": _game["messages"][since:]}
         self._send(200, body)
 
     def do_POST(self):
-        match = PATH_RE.match(urlparse(self.path).path)
+        path = urlparse(self.path).path
         length = int(self.headers.get("Content-Length", 0))
-        if not match or not 0 < length <= MAX_BODY:
+        if not 0 < length <= MAX_BODY:
             return self._send(400)
-        text = self.rfile.read(length).decode("utf-8", "replace")
         try:
-            payload = json.loads(text)
+            payload = json.loads(self.rfile.read(length).decode("utf-8", "replace"))
         except ValueError:
-            payload = {}
-        payload = payload if isinstance(payload, dict) else {}
-        now = time.time()
+            return self._send(400)
+        if not isinstance(payload, dict):
+            return self._send(400)
         with _lock:
-            _cleanup(now)
-            session = _sessions.get(match[1])
-            if match[2]:
-                key = str(payload.get("key", ""))
-                if len(key) < 8:
+            if path == "/msg":
+                if payload.get("type") not in ("join", "answer"):
                     return self._send(400)
-                if session and session["key"] != key:
-                    return self._send(403, {"error": "sessione già usata"})
-                _sessions.setdefault(match[1], {"key": key, "messages": [], "last": now})
-                return self._send(200, {"ok": True})
-            if not session:
-                return self._send(404, {"error": "sessione inesistente"})
-            if payload.get("type") == "question" and payload.get("key") != session["key"]:
-                return self._send(403)
-            if len(session["messages"]) >= MAX_MESSAGES:
-                return self._send(429)
-            session["last"] = now
-            payload.pop("key", None)
-            seq = len(session["messages"]) + 1
-            session["messages"].append({"seq": seq, "time": now, "message": json.dumps(payload) if payload else text})
-        self._send(200, {"seq": seq})
+                payload.pop("key", None)
+                seq = _append(payload)
+                return self._send(200, {"seq": seq}) if seq else self._send(429)
+            if path not in ("/login", "/question", "/reset"):
+                return self._send(404)
+            if not _is_host(payload.get("key", "")):
+                return self._send(403, {"error": "chiave errata" if HOST_KEY else "HOST_KEY non impostata sul server"})
+            if path == "/question":
+                _append({"type": "question"})
+            elif path == "/reset":
+                _game.update(epoch=secrets.token_hex(4), messages=[])
+            self._send(200, {"epoch": _game["epoch"]})
 
     def log_message(self, *args):
         pass
@@ -101,5 +97,5 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
-    print(f"skydo server su :{port}", flush=True)
+    print(f"skydo server su :{port}" + ("" if HOST_KEY else " (ATTENZIONE: HOST_KEY non impostata)"), flush=True)
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()

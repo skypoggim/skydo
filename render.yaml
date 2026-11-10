@@ -6,3 +6,6 @@ services:
     buildCommand: echo "nessuna dipendenza"
     startCommand: python server.py
     healthCheckPath: /
+    envVars:
+      - key: HOST_KEY
+        sync: false

@@ -33,16 +33,14 @@
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
   h1 small { font-size: 16px; color: var(--muted); font-weight: 400; letter-spacing: 0; }
-  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); margin-bottom: 8px; }
+  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); margin-bottom: 12px; }
   .muted { color: var(--muted); }
   .server { font-size: 14px; }
-  textarea, input[type=text] {
-    width: 100%; font: inherit; font-size: 15px; padding: 12px 14px; border-radius: 14px;
+  input[type=password] {
+    width: 100%; font: inherit; font-size: 20px; padding: 14px 16px; border-radius: 14px;
     border: 2px solid rgba(50,82,204,.15); background: #fff; color: var(--text); outline: none;
   }
-  textarea { min-height: 200px; font-family: ui-monospace, monospace; font-size: 13px; }
-  textarea:focus, input:focus { border-color: var(--primary); }
-  label { display: block; margin: 14px 0 6px; font-weight: 700; }
+  input:focus { border-color: var(--primary); }
   button {
     font: inherit; font-weight: 700; border: none; border-radius: 50px; cursor: pointer;
     padding: 12px 20px; font-size: 16px; color: var(--primary); background: rgba(50,82,204,.1);
@@ -54,11 +52,12 @@
     width: 100%; padding: 20px; font-size: 24px; letter-spacing: 1px; color: #fff;
     background: linear-gradient(135deg, var(--primary), var(--primary-dark)); box-shadow: 0 4px 24px rgba(50,82,204,.35);
   }
+  button.danger { color: var(--accent); background: rgba(200,54,64,.1); }
   .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .stats { display: flex; gap: 10px; flex-wrap: wrap; }
   .stat { padding: 8px 14px; border-radius: 50px; background: rgba(50,82,204,.08); font-weight: 700; }
   .question { font-size: 22px; font-weight: 700; line-height: 1.3; }
-  .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
   .tabs button.active { background: var(--primary); color: #fff; }
   table { width: 100%; border-collapse: collapse; font-size: 16px; }
   td, th { padding: 8px 6px; text-align: left; border-bottom: 1px solid rgba(50,82,204,.08); }
@@ -69,14 +68,14 @@
   tr.first { background: rgba(184,114,10,.10); }
   tr.first td { font-weight: 700; }
   .answer { word-break: break-word; }
-  .error { color: var(--accent); font-weight: 700; }
+  .error { color: var(--accent); font-weight: 700; min-height: 1em; margin-top: 10px; }
   .hidden { display: none !important; }
   #qrModal {
     position: fixed; inset: 0; background: rgba(28,32,64,.55); display: flex;
     align-items: center; justify-content: center; padding: 16px; z-index: 10;
   }
   #qrModal .card { background: #fff; text-align: center; max-width: 520px; width: 100%; }
-  #qrCanvas { width: 100%; max-width: 420px; height: auto; image-rendering: pixelated; }
+  #qrCanvas { width: 100%; max-width: 420px; height: auto; }
   #qrUrl { word-break: break-all; font-size: 14px; margin: 10px 0 16px; }
 </style>
 </head>
@@ -87,14 +86,14 @@
     <span class="server muted" id="serverStatus">Sveglio il server…</span>
   </header>
 
-  <!-- Setup -->
-  <section class="card" id="setup">
-    <h2>Nuova partita</h2>
-    <p id="quizInfo" class="muted">Carico quiz.json…</p>
-    <label for="sessionName">Nome sessione (facoltativo, finisce nel QR)</label>
-    <input type="text" id="sessionName" maxlength="40" placeholder="es. quiz-natale">
-    <p class="error" id="setupError"></p>
-    <div style="margin-top:16px"><button class="main" id="create" disabled>Crea partita</button></div>
+  <!-- Accesso -->
+  <section class="card hidden" id="login">
+    <h2>Accesso conduttore</h2>
+    <form id="loginForm">
+      <input type="password" id="password" placeholder="Chiave (HOST_KEY)" autocomplete="current-password" required>
+      <div style="margin-top:14px"><button class="main">Entra</button></div>
+    </form>
+    <p class="error" id="loginError"></p>
   </section>
 
   <!-- Partita -->
@@ -108,12 +107,12 @@
         <div class="row">
           <button id="showQr">QR</button>
           <button id="csv">CSV</button>
-          <button id="reset">Nuova partita</button>
+          <button class="danger" id="reset">Reset</button>
         </div>
       </div>
       <p class="question" id="questionText" style="margin-top:16px"></p>
       <p class="error" id="gameError"></p>
-      <div style="margin-top:16px"><button class="main" id="next">▶ Domanda 1</button></div>
+      <div style="margin-top:8px"><button class="main" id="next" disabled>▶ Domanda 1</button></div>
     </div>
 
     <div class="card">
@@ -144,19 +143,17 @@
 <script>
   const SERVER = "https://skydo.onrender.com";  // URL di server.py su Render
   const PLAYER_URL = new URL("./", location.href).href;  // index.html, stessa cartella
-  const STORE_KEY = "skydo-host";
   const $ = (id) => document.getElementById(id);
-
   const store = {
-    get: () => { try { return JSON.parse(localStorage.getItem(STORE_KEY)); } catch { return null; } },
-    set: (value) => { try { localStorage.setItem(STORE_KEY, JSON.stringify(value)); } catch {} },
-    clear: () => { try { localStorage.removeItem(STORE_KEY); } catch {} },
+    get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+    set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
   };
 
-  let session = null;  // {topic, key, quiz}
-  let state = null;
-  let polling = null;
-  let tab = "live";
+  let key = store.get("skydo-host-key");
+  let quiz = [];
+  let state = freshState();
+  let epoch = null;
+  let pollBusy = false;
 
   function freshState() {
     return { since: 0, n: 0, start: null, players: {}, answers: [], winners: {} };
@@ -168,57 +165,47 @@
   }
 
   function isCorrect(n, answer) {
-    const question = session.quiz[n - 1];
+    const question = quiz[n - 1];
     if (!question) return null;
     return question.risposte.some((accepted) => normalize(accepted) === normalize(answer));
   }
 
-  function randomId(length) {
-    const bytes = crypto.getRandomValues(new Uint8Array(length));
-    return Array.from(bytes, (byte) => "abcdefghijklmnopqrstuvwxyz0123456789"[byte % 36]).join("");
-  }
-
-  function parseQuiz(text) {
-    const quiz = JSON.parse(text);
-    if (!Array.isArray(quiz) || !quiz.length) throw new Error("serve una lista di domande");
-    quiz.forEach((question, i) => {
-      if (typeof question.domanda !== "string" || !Array.isArray(question.risposte) || !question.risposte.length)
-        throw new Error(`domanda ${i + 1}: servono "domanda" e "risposte" (lista)`);
-    });
-    return quiz;
-  }
-
   // ---------- server ----------
+  async function post(path, body) {
+    const resp = await fetch(SERVER + path, { method: "POST", body: JSON.stringify(body) });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw Object.assign(new Error(data.error || "errore " + resp.status), { status: resp.status });
+    return data;
+  }
+
   async function wakeServer() {
     for (let attempt = 0; attempt < 30; attempt++) {
       try {
-        const resp = await fetch(SERVER + "/");
-        if (resp.ok) { $("serverStatus").textContent = "● server pronto"; $("create").disabled = false; return; }
+        if ((await fetch(SERVER + "/")).ok) { $("serverStatus").textContent = "● server pronto"; return true; }
       } catch {}
       $("serverStatus").textContent = `Sveglio il server… (${(attempt + 1) * 5}s)`;
       await new Promise((resolve) => setTimeout(resolve, 5000));
     }
     $("serverStatus").textContent = "Server non raggiungibile: ricarica la pagina";
+    return false;
   }
 
-  async function post(path, body) {
-    const resp = await fetch(SERVER + "/" + path, { method: "POST", body: JSON.stringify(body) });
-    if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || "errore " + resp.status);
-    return resp.json();
-  }
-
-  let pollBusy = false;
   async function poll() {
-    if (pollBusy || !session) return;
+    if (pollBusy || !key) return;
     pollBusy = true;
     try {
-      const resp = await fetch(`${SERVER}/${session.topic}?since=${state.since}&key=${session.key}`);
-      if (resp.status === 404) { $("gameError").textContent = "Sessione persa: il server si è riavviato. Crea una nuova partita."; return; }
+      const resp = await fetch(`${SERVER}/msg?since=${state.since}&key=${encodeURIComponent(key)}`);
+      if (resp.status === 403) { logout("Chiave non più valida"); return; }
       if (!resp.ok) return;
-      const events = await resp.json();
-      events.forEach(handle);
-      if (events.length) render();
-      $("gameError").textContent = "";
+      const data = await resp.json();
+      if (epoch !== null && data.epoch !== epoch) {
+        // server riavviato (o reset da un altro dispositivo): la numerazione riparte, la partita in corso resta
+        state.since = 0;
+        $("gameError").textContent = "Il server si è riavviato: continuo con le risposte già ricevute.";
+      }
+      epoch = data.epoch;
+      data.messages.forEach(handle);
+      if (data.messages.length) render();
     } catch {} finally { pollBusy = false; }
   }
 
@@ -226,38 +213,35 @@
     if (event.seq <= state.since) return;
     state.since = event.seq;
     let payload;
-    try { payload = JSON.parse(event.message); } catch { payload = { type: "answer", answer: event.message }; }
+    try { payload = JSON.parse(event.message); } catch { return; }
     if (payload.type === "question") {
       state.n += 1;
       state.start = event.time;
       return;
     }
-    const id = payload.id || "?";
+    const id = String(payload.id || "?");
     const name = String(payload.name || "?").slice(0, 30);
     state.players[id] = name;
-    if (payload.type !== "answer") return;
+    if (payload.type !== "answer" || !state.n) return;
     const correct = isCorrect(state.n, payload.answer || "");
     const answer = {
       domanda: state.n, nome: name, risposta: String(payload.answer || "").slice(0, 200), corretta: correct,
-      secondi: state.start ? Math.round((event.time - state.start) * 1000) / 1000 : null,
-      ts: new Date(event.time * 1000).toISOString(), id,
+      secondi: Math.round((event.time - state.start) * 1000) / 1000, ts: new Date(event.time * 1000).toISOString(), id,
     };
-    if (correct && state.n && !(state.n in state.winners)) { state.winners[state.n] = answer; answer.primo = true; }
+    if (correct && !(state.n in state.winners)) { state.winners[state.n] = answer; answer.primo = true; }
     state.answers.push(answer);
   }
 
   // ---------- render ----------
-  function cell(row, text, cls) {
-    const td = row.insertCell();
-    td.textContent = text;
-    if (cls) td.className = cls;
-    return td;
-  }
-
-  function table(headers) {
+  function table(headers, rows) {
     const element = document.createElement("table");
     const head = element.createTHead().insertRow();
     headers.forEach((header) => { const th = document.createElement("th"); th.textContent = header; head.appendChild(th); });
+    rows.forEach(({ cells, cls }) => {
+      const row = element.insertRow();
+      if (cls) row.className = cls;
+      cells.forEach(([text, cellCls]) => { const td = row.insertCell(); td.textContent = text; if (cellCls) td.className = cellCls; });
+    });
     return element;
   }
 
@@ -266,69 +250,58 @@
     Object.values(state.winners).forEach((answer) => {
       const score = scores[answer.id] || (scores[answer.id] = { nome: answer.nome, vittorie: 0, secondi: 0 });
       score.vittorie += 1;
-      score.secondi += answer.secondi || 0;
+      score.secondi += answer.secondi;
     });
     return Object.values(scores).sort((a, b) => b.vittorie - a.vittorie || a.secondi - b.secondi);
   }
 
   function render() {
-    const total = session.quiz.length;
+    const total = quiz.length;
     const players = Object.keys(state.players).length;
     $("playersStat").textContent = `${players} giocator${players === 1 ? "e" : "i"}`;
     $("questionStat").textContent = `Domanda ${state.n}/${total}`;
     $("questionText").textContent = state.n
-      ? session.quiz[state.n - 1].domanda
-      : "Mostra il QR e aspetta che i giocatori si iscrivano.";
+      ? (quiz[state.n - 1] || {}).domanda || ""
+      : "Mostra il QR e aspetta che i giocatori entrino.";
     const next = $("next");
     if (!next.dataset.busy) {
       next.disabled = state.n >= total;
       next.textContent = state.n >= total ? "Domande finite" : `▶ Domanda ${state.n + 1}`;
     }
 
-    const live = table(["", "Nome", "Risposta", "Secondi"]);
-    state.answers.filter((answer) => answer.domanda === state.n && state.n > 0).forEach((answer) => {
-      const row = live.insertRow();
-      row.className = (answer.corretta ? "yes" : "no") + (answer.primo ? " first" : "");
-      cell(row, answer.corretta ? "✓" : "✗");
-      cell(row, (answer.primo ? "🏆 " : "") + answer.nome);
-      cell(row, answer.risposta, "answer");
-      cell(row, answer.secondi.toFixed(3), "num");
-    });
-    $("live").replaceChildren(state.n ? live : Object.assign(document.createElement("p"), { className: "muted", textContent: "Le risposte appariranno qui." }));
+    const current = state.answers.filter((answer) => answer.domanda === state.n);
+    $("live").replaceChildren(state.n
+      ? table(["", "Nome", "Risposta", "Secondi"], current.map((answer) => ({
+          cls: (answer.corretta ? "yes" : "no") + (answer.primo ? " first" : ""),
+          cells: [[answer.corretta ? "✓" : "✗"], [(answer.primo ? "🏆 " : "") + answer.nome], [answer.risposta, "answer"], [answer.secondi.toFixed(3), "num"]],
+        })))
+      : Object.assign(document.createElement("p"), { className: "muted", textContent: "Le risposte appariranno qui." }));
 
-    const board = table(["#", "Nome", "Vittorie", "Secondi"]);
-    leaderboard().forEach((score, i) => {
-      const row = board.insertRow();
-      cell(row, i + 1); cell(row, score.nome); cell(row, score.vittorie, "num"); cell(row, score.secondi.toFixed(3), "num");
-    });
-    $("board").replaceChildren(board);
+    $("board").replaceChildren(table(["#", "Nome", "Vittorie", "Secondi"], leaderboard().map((score, i) => ({
+      cells: [[i + 1], [score.nome], [score.vittorie, "num"], [score.secondi.toFixed(3), "num"]],
+    }))));
 
-    const list = table(["Giocatore", "Risposte"]);
-    Object.entries(state.players).forEach(([id, name]) => {
-      const row = list.insertRow();
-      cell(row, name); cell(row, state.answers.filter((answer) => answer.id === id).length, "num");
-    });
-    $("players").replaceChildren(list);
+    $("players").replaceChildren(table(["Giocatore", "Risposte"], Object.entries(state.players).map(([id, name]) => ({
+      cells: [[name], [state.answers.filter((answer) => answer.id === id).length, "num"]],
+    }))));
   }
 
-  // ---------- QR ----------
-  function playerLink() { return `${PLAYER_URL}?t=${session.topic}`; }
-
+  // ---------- QR / download ----------
   function drawQr() {
     const qr = qrcode(0, "M");
-    qr.addData(playerLink());
+    qr.addData(PLAYER_URL);
     qr.make();
-    const count = qr.getModuleCount(), cellSize = 20, margin = 2;
+    const count = qr.getModuleCount(), size = 20, margin = 2;
     const canvas = $("qrCanvas");
-    canvas.width = canvas.height = (count + margin * 2) * cellSize;
+    canvas.width = canvas.height = (count + margin * 2) * size;
     const context = canvas.getContext("2d");
     context.fillStyle = "#fff";
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.fillStyle = "#1C2040";
     for (let r = 0; r < count; r++)
       for (let c = 0; c < count; c++)
-        if (qr.isDark(r, c)) context.fillRect((c + margin) * cellSize, (r + margin) * cellSize, cellSize, cellSize);
-    $("qrUrl").textContent = playerLink();
+        if (qr.isDark(r, c)) context.fillRect((c + margin) * size, (r + margin) * size, size, size);
+    $("qrUrl").textContent = PLAYER_URL;
   }
 
   function download(name, href) {
@@ -337,40 +310,30 @@
   }
 
   // ---------- flusso ----------
-  function startGame() {
-    state = freshState();
-    $("setup").classList.add("hidden");
+  function logout(message) {
+    key = null;
+    store.set("skydo-host-key", "");
+    $("game").classList.add("hidden");
+    $("login").classList.remove("hidden");
+    $("loginError").textContent = message || "";
+  }
+
+  function enter() {
+    $("login").classList.add("hidden");
     $("game").classList.remove("hidden");
-    drawQr();
     render();
-    clearInterval(polling);
-    polling = setInterval(poll, 500);
     poll();
   }
 
-  let quiz = null;
-  async function loadQuiz() {
+  $("loginForm").onsubmit = async (e) => {
+    e.preventDefault();
+    $("loginError").textContent = "";
     try {
-      const resp = await fetch("quiz.json", { cache: "no-store" });
-      quiz = parseQuiz(await resp.text());
-      $("quizInfo").textContent = `Quiz: ${quiz.length} domande da quiz.json`;
-    } catch (error) {
-      $("quizInfo").textContent = "";
-      $("setupError").textContent = "quiz.json non valido: " + error.message;
-    }
-  }
-
-  $("create").onclick = async () => {
-    $("setupError").textContent = "";
-    if (!quiz) { $("setupError").textContent = "Manca un quiz.json valido."; return; }
-    const name = normalize($("sessionName").value).replace(/ /g, "-");
-    const topic = (name || "skydo") + "-" + randomId(5);
-    const key = randomId(16);
-    try { await post(topic + "/host", { key }); } catch (error) { $("setupError").textContent = "Errore server: " + error.message; return; }
-    session = { topic, key, quiz };
-    store.set(session);
-    startGame();
-    $("qrModal").classList.remove("hidden");
+      await post("/login", { key: $("password").value });
+      key = $("password").value;
+      store.set("skydo-host-key", key);
+      enter();
+    } catch (error) { $("loginError").textContent = error.status === 403 ? error.message : "Server non raggiungibile, riprova"; }
   };
 
   $("next").onclick = async () => {
@@ -378,9 +341,26 @@
     next.dataset.busy = "1";
     next.disabled = true;
     next.textContent = "…";
-    try { await post(session.topic, { type: "question", key: session.key }); while (pollBusy) await new Promise((r) => setTimeout(r, 50)); await poll(); }
-    catch (error) { $("gameError").textContent = "Domanda non partita: " + error.message; }
+    try {
+      await post("/question", { key });
+      while (pollBusy) await new Promise((resolve) => setTimeout(resolve, 50));
+      await poll();
+    } catch (error) { $("gameError").textContent = "Domanda non partita: " + error.message; }
     delete next.dataset.busy;
+    render();
+  };
+
+  $("reset").onclick = async () => {
+    if (!confirm("Azzerare la partita? Risposte e classifica verranno cancellate (scarica prima il CSV se ti serve).")) return;
+    try {
+      while (pollBusy) await new Promise((resolve) => setTimeout(resolve, 50));
+      pollBusy = true;
+      epoch = (await post("/reset", { key })).epoch;
+      state = freshState();
+      $("gameError").textContent = "";
+      await loadQuiz();
+    } catch (error) { $("gameError").textContent = "Reset non riuscito: " + error.message; }
+    pollBusy = false;
     render();
   };
 
@@ -389,34 +369,33 @@
     const quote = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
     const lines = [columns.join(","), ...state.answers.map((answer) => columns.map((column) => quote(answer[column])).join(","))];
     const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
-    download(`skydo_${session.topic}_${stamp}.csv`, URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" })));
-  };
-
-  $("reset").onclick = () => {
-    if (!confirm("Chiudere questa partita e crearne una nuova? Scarica prima il CSV se ti serve.")) return;
-    clearInterval(polling);
-    store.clear();
-    session = state = null;
-    $("game").classList.add("hidden");
-    $("setup").classList.remove("hidden");
+    download(`skydo_${stamp}.csv`, URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" })));
   };
 
   $("showQr").onclick = () => $("qrModal").classList.remove("hidden");
   $("qrClose").onclick = () => $("qrModal").classList.add("hidden");
-  $("qrDownload").onclick = () => download(`skydo_qr_${session.topic}.png`, $("qrCanvas").toDataURL("image/png"));
+  $("qrDownload").onclick = () => download("skydo_qr.png", $("qrCanvas").toDataURL("image/png"));
 
   document.querySelectorAll(".tabs button").forEach((button) => {
     button.onclick = () => {
-      tab = button.dataset.tab;
       document.querySelectorAll(".tabs button").forEach((other) => other.classList.toggle("active", other === button));
-      ["live", "board", "players"].forEach((id) => $(id).classList.toggle("hidden", id !== tab));
+      ["live", "board", "players"].forEach((id) => $(id).classList.toggle("hidden", id !== button.dataset.tab));
     };
   });
 
-  wakeServer();
-  loadQuiz();
-  session = store.get();
-  if (session && session.topic && session.key && Array.isArray(session.quiz)) startGame();
+  async function loadQuiz() {
+    try {
+      quiz = await (await fetch("quiz.json", { cache: "no-store" })).json();
+    } catch { $("gameError").textContent = "quiz.json non leggibile"; }
+  }
+
+  (async () => {
+    drawQr();
+    await loadQuiz();
+    if (!(await wakeServer())) return;
+    if (key) enter(); else logout();
+    setInterval(poll, 500);
+  })();
 </script>
 </body>
 </html>
