@@ -57,6 +57,9 @@
   .stats { display: flex; gap: 10px; flex-wrap: wrap; }
   .stat { padding: 8px 14px; border-radius: 50px; background: rgba(50,82,204,.08); font-weight: 700; }
   .question { font-size: 22px; font-weight: 700; line-height: 1.3; }
+  .options { list-style: none; padding: 0; margin-top: 10px; display: grid; gap: 6px; }
+  .options li { padding: 8px 14px; border-radius: 12px; background: rgba(50,82,204,.06); font-size: 18px; }
+  .options li.right { background: rgba(30,142,90,.14); color: var(--ok); font-weight: 700; }
   .tabs { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
   .tabs button.active { background: var(--primary); color: #fff; }
   table { width: 100%; border-collapse: collapse; font-size: 16px; }
@@ -111,6 +114,7 @@
         </div>
       </div>
       <p class="question" id="questionText" style="margin-top:16px"></p>
+      <ol class="options" id="options"></ol>
       <p class="error" id="gameError"></p>
       <div style="margin-top:8px"><button class="main" id="next" disabled>▶ Domanda 1</button></div>
     </div>
@@ -119,11 +123,9 @@
       <div class="tabs">
         <button class="active" data-tab="live">Live</button>
         <button data-tab="board">Classifica</button>
-        <button data-tab="players">Giocatori</button>
       </div>
       <div id="live"></div>
       <div id="board" class="hidden"></div>
-      <div id="players" class="hidden"></div>
     </div>
   </section>
 </main>
@@ -156,18 +158,7 @@
   let pollBusy = false;
 
   function freshState() {
-    return { since: 0, n: 0, start: null, players: {}, answers: [], winners: {} };
-  }
-
-  function normalize(text) {
-    return String(text).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
-      .replace(/[^a-z0-9]+/g, " ").trim();
-  }
-
-  function isCorrect(n, answer) {
-    const question = quiz[n - 1];
-    if (!question) return null;
-    return question.risposte.some((accepted) => normalize(accepted) === normalize(answer));
+    return { since: 0, n: 0, players: {}, answers: [] };
   }
 
   // ---------- server ----------
@@ -214,22 +205,15 @@
     state.since = event.seq;
     let payload;
     try { payload = JSON.parse(event.message); } catch { return; }
-    if (payload.type === "question") {
-      state.n += 1;
-      state.start = event.time;
-      return;
-    }
+    if (payload.type === "question") { state.n = payload.domanda || state.n + 1; return; }
     const id = String(payload.id || "?");
-    const name = String(payload.name || "?").slice(0, 30);
-    state.players[id] = name;
-    if (payload.type !== "answer" || !state.n) return;
-    const correct = isCorrect(state.n, payload.answer || "");
-    const answer = {
-      domanda: state.n, nome: name, risposta: String(payload.answer || "").slice(0, 200), corretta: correct,
-      secondi: Math.round((event.time - state.start) * 1000) / 1000, ts: new Date(event.time * 1000).toISOString(), id,
-    };
-    if (correct && !(state.n in state.winners)) { state.winners[state.n] = answer; answer.primo = true; }
-    state.answers.push(answer);
+    state.players[id] = String(payload.name || "?");
+    if (payload.type !== "answer") return;
+    // correttezza, secondi e punti li calcola il server (stessi numeri che vedono i telefoni)
+    state.answers.push({
+      domanda: payload.domanda, nome: state.players[id], risposta: payload.answer, corretta: payload.corretta,
+      secondi: payload.secondi, punti: payload.punti, primo: payload.primo, ts: new Date(event.time * 1000).toISOString(), id,
+    });
   }
 
   // ---------- render ----------
@@ -247,12 +231,21 @@
 
   function leaderboard() {
     const scores = {};
-    Object.values(state.winners).forEach((answer) => {
-      const score = scores[answer.id] || (scores[answer.id] = { nome: answer.nome, vittorie: 0, secondi: 0 });
-      score.vittorie += 1;
+    Object.entries(state.players).forEach(([id, nome]) => { scores[id] = { nome, punti: 0, giuste: 0, secondi: 0 }; });
+    state.answers.filter((answer) => answer.corretta).forEach((answer) => {
+      const score = scores[answer.id];
+      score.punti += answer.punti;
+      score.giuste += 1;
       score.secondi += answer.secondi;
     });
-    return Object.values(scores).sort((a, b) => b.vittorie - a.vittorie || a.secondi - b.secondi);
+    return Object.values(scores).sort((a, b) => b.punti - a.punti || a.secondi - b.secondi);
+  }
+
+  // "B" -> "B · 2003" per le domande a scelta multipla
+  function optionLabel(answer) {
+    const options = (quiz[answer.domanda - 1] || {}).opzioni || [];
+    const index = String(answer.risposta || "").trim().toUpperCase().charCodeAt(0) - 65;
+    return String(answer.risposta).trim().length === 1 && options[index] ? `${answer.risposta} · ${options[index]}` : answer.risposta;
   }
 
   function render() {
@@ -263,6 +256,16 @@
     $("questionText").textContent = state.n
       ? (quiz[state.n - 1] || {}).domanda || ""
       : "Mostra il QR e aspetta che i giocatori entrino.";
+    // opzioni con lettera, la giusta in verde (solo qui, i telefoni vedono solo A/B/C/D)
+    const question = quiz[state.n - 1] || {};
+    const right = (question.risposte || []).map((answer) => String(answer).trim().toUpperCase());
+    $("options").replaceChildren(...(question.opzioni || []).map((option, i) => {
+      const letter = String.fromCharCode(65 + i);
+      return Object.assign(document.createElement("li"), {
+        className: right.includes(letter) ? "right" : "", textContent: `${letter}. ${option}`,
+      });
+    }));
+
     const next = $("next");
     if (!next.dataset.busy) {
       next.disabled = state.n >= total;
@@ -271,18 +274,15 @@
 
     const current = state.answers.filter((answer) => answer.domanda === state.n);
     $("live").replaceChildren(state.n
-      ? table(["", "Nome", "Risposta", "Secondi"], current.map((answer) => ({
+      ? table(["", "Nome", "Risposta", "Secondi", "Punti"], current.map((answer) => ({
           cls: (answer.corretta ? "yes" : "no") + (answer.primo ? " first" : ""),
-          cells: [[answer.corretta ? "✓" : "✗"], [(answer.primo ? "🏆 " : "") + answer.nome], [answer.risposta, "answer"], [answer.secondi.toFixed(3), "num"]],
+          cells: [[answer.corretta ? "✓" : "✗"], [(answer.primo ? "🏆 " : "") + answer.nome], [optionLabel(answer), "answer"],
+                  [answer.secondi.toFixed(1), "num"], [answer.punti, "num"]],
         })))
       : Object.assign(document.createElement("p"), { className: "muted", textContent: "Le risposte appariranno qui." }));
 
-    $("board").replaceChildren(table(["#", "Nome", "Vittorie", "Secondi"], leaderboard().map((score, i) => ({
-      cells: [[i + 1], [score.nome], [score.vittorie, "num"], [score.secondi.toFixed(3), "num"]],
-    }))));
-
-    $("players").replaceChildren(table(["Giocatore", "Risposte"], Object.entries(state.players).map(([id, name]) => ({
-      cells: [[name], [state.answers.filter((answer) => answer.id === id).length, "num"]],
+    $("board").replaceChildren(table(["#", "Nome", "Punti", "Giuste", "Secondi"], leaderboard().map((score, i) => ({
+      cells: [[i + 1], [score.nome], [score.punti, "num"], [score.giuste, "num"], [score.secondi.toFixed(1), "num"]],
     }))));
   }
 
@@ -337,6 +337,16 @@
   };
 
   $("next").onclick = async () => {
+    // opzioni con lettera, la giusta in verde (solo qui, i telefoni vedono solo A/B/C/D)
+    const question = quiz[state.n - 1] || {};
+    const right = (question.risposte || []).map((answer) => String(answer).trim().toUpperCase());
+    $("options").replaceChildren(...(question.opzioni || []).map((option, i) => {
+      const letter = String.fromCharCode(65 + i);
+      return Object.assign(document.createElement("li"), {
+        className: right.includes(letter) ? "right" : "", textContent: `${letter}. ${option}`,
+      });
+    }));
+
     const next = $("next");
     next.dataset.busy = "1";
     next.disabled = true;
@@ -365,7 +375,7 @@
   };
 
   $("csv").onclick = () => {
-    const columns = ["domanda", "nome", "risposta", "corretta", "secondi", "ts", "id"];
+    const columns = ["domanda", "nome", "risposta", "corretta", "secondi", "punti", "ts", "id"];
     const quote = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
     const lines = [columns.join(","), ...state.answers.map((answer) => columns.map((column) => quote(answer[column])).join(","))];
     const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
@@ -379,7 +389,7 @@
   document.querySelectorAll(".tabs button").forEach((button) => {
     button.onclick = () => {
       document.querySelectorAll(".tabs button").forEach((other) => other.classList.toggle("active", other === button));
-      ["live", "board", "players"].forEach((id) => $(id).classList.toggle("hidden", id !== button.dataset.tab));
+      ["live", "board"].forEach((id) => $(id).classList.toggle("hidden", id !== button.dataset.tab));
     };
   });
 

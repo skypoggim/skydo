@@ -4,18 +4,19 @@ Quiz tra colleghi stile Mentimeter/Slido, ma con lo schermo fatto interamente in
 
 ## I due link
 
-- **Giocatori**: `https://skypoggim.github.io/skydo/` (`index.html`). QR fisso, va nella slide una volta per tutte. Nome chiesto una volta (localStorage), poi solo risposte; all'apertura si ripresenta al conduttore.
-- **Conduttore**: `https://skypoggim.github.io/skydo/host.html`. Chiave `HOST_KEY` chiesta una volta (localStorage). QR scaricabile, "▶ Domanda", Live ✓/✗/🏆, Classifica, Giocatori, CSV, Reset.
+- **Giocatori**: `https://skypoggim.github.io/skydo/` (`index.html`). QR fisso, va nella slide una volta per tutte. Nome e cognome chiesti una volta (localStorage, almeno due parole), poi solo risposte e classifica (primi 5, poi `⋮` e la propria posizione); all'apertura si ripresenta al conduttore.
+- **Conduttore**: `https://skypoggim.github.io/skydo/host.html`. Chiave `HOST_KEY` chiesta una volta (localStorage). QR scaricabile, "▶ Domanda", Live ✓/✗/🏆 con punti, Classifica completa, CSV, Reset.
 
 Dietro c'è `server.py` su Render free (`render.yaml`, `https://skydo.onrender.com`): stdlib senza dipendenze, **una sola partita** in memoria. Env var `HOST_KEY` impostata nella dashboard Render (mai nel repo, che è pubblico). URL del server: costante `SERVER` in `index.html` e `host.html`.
 
 ## Come funziona
 
-- API: `POST /msg` (telefoni: join/answer), `GET /msg?since=&key=` (conduttore), `POST /login|/question|/reset` con `{key}`.
-- Regole applicate dal server (409 + messaggio sul telefono): nomi unici (case/spazi ignorati, il nome resta di chi l'ha preso per primo fino al reset), niente risposte prima della prima domanda, una sola risposta per giocatore per domanda (vale la prima). Una risposta vale per la domanda in corso quando arriva: chi salta la domanda 1 e risponde dopo il via della 2 risponde alla 2. `/question` riceve il numero di domanda dal conduttore, così il server resta allineato anche dopo un riavvio.
+- API: `POST /msg` (telefoni: join/answer), `GET /msg?since=&key=` (conduttore), `GET /classifica?id=` (telefoni, pubblica), `POST /login|/question|/reset` con `{key}`.
+- Regole applicate dal server (409 + messaggio sul telefono): nome e cognome obbligatori (almeno due parole), nomi unici (case/spazi ignorati, il nome resta di chi l'ha preso per primo fino al reset), niente risposte prima della prima domanda, una sola risposta per giocatore per domanda (vale la prima). Una risposta vale per la domanda in corso quando arriva: chi salta la domanda 1 e risponde dopo il via della 2 risponde alla 2. `/question` riceve il numero di domanda dal conduttore, così il server resta allineato anche dopo un riavvio.
 - Il server timbra ogni messaggio con ora e numero progressivo: la domanda a cui appartiene una risposta e i `secondi` (ora risposta − ora domanda) dipendono solo dall'orologio del server.
 - `epoch` cambia a ogni reset/riavvio: se cambia senza un reset chiesto dal conduttore (Render riavviato), `host.html` tiene risposte e classifica già ricevute e continua.
-- Correttezza e classifica sono calcolate in `host.html` da `quiz.json` (`[{domanda, risposte: [...]}]`), pushato nel repo pubblico per semplicità (scelta consapevole). Confronto normalizzando maiuscole/accenti/punteggiatura. Classifica: vittorie (primo ✓ per domanda), a parità meno secondi totali.
+- Punteggio calcolato dal server (così telefoni e conduttore vedono gli stessi numeri) da `quiz.json` (`[{domanda, risposte: [...], opzioni?, tempo?}]`), pushato nel repo pubblico per semplicità (scelta consapevole). Confronto normalizzando maiuscole/accenti/punteggiatura. Risposta giusta: 1000 punti se immediata, che scendono in modo lineare fino a 500 a `tempo` secondi dal via (default 30) e poi restano 500; sbagliata 0. Classifica: punti, a parità meno secondi totali sulle risposte giuste. 🏆 = primo ✓ della domanda, solo segnalato. Costanti in cima a `server.py`.
+- Domande a scelta multipla: in `quiz.json` `opzioni: [...]` e `risposte: ["B"]` (lettera). Il testo resta sul PPT e su `host.html` (opzioni con la giusta in verde); il telefono legge da `/classifica` solo quante opzioni ha la domanda in corso (`scelte`) e mostra i pulsanti A/B/C/D, altrimenti il campo di testo. Il telefono controlla ogni 2 s; ogni risposta porta la `domanda` che il telefono crede in corso e, se nel frattempo è partita la successiva, il server la rifiuta (409 `stale`) invece di assegnarla alla domanda sbagliata.
 - Ricaricando `host.html` la partita viene ricostruita dal server.
 - Ntfy.sh scartato: limiti per IP (250 msg/giorno, burst ~60) e in ufficio 100 telefoni escono dallo stesso IP.
 
@@ -25,5 +26,5 @@ Coerente con dataday: font Sky Text in `assets/fonts/` (copiato da dataday) e pa
 
 ## Vincoli
 
-- Render free dorme dopo 15 min senza richieste (risveglio ~1 min): aprire `host.html` qualche minuto prima, il suo polling lo tiene sveglio. Un riavvio svuota il server: a fine partita scaricare il CSV.
+- Render free dorme dopo 15 min senza richieste (risveglio ~1 min): aprire `host.html` qualche minuto prima, il suo polling lo tiene sveglio. Un riavvio svuota il server: `host.html` tiene la sua classifica, ma quella sui telefoni riparte da zero; a fine partita scaricare il CSV.
 - Una partita alla volta.

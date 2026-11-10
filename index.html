@@ -53,6 +53,20 @@
   .status { min-height: 24px; margin-top: 16px; text-align: center; font-weight: 700; }
   .ok { color: var(--primary); } .err { color: var(--accent); }
   .link { margin-top: 18px; text-align: center; font-size: 14px; color: var(--muted); text-decoration: underline; cursor: pointer; }
+  .board { margin-top: 26px; padding-top: 18px; border-top: 1px solid rgba(50,82,204,.12); }
+  .board h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); margin-bottom: 8px; }
+  .board ol { list-style: none; padding: 0; }
+  .board li { display: flex; gap: 10px; padding: 8px 12px; border-radius: 12px; font-size: 17px; }
+  .board li .pos { width: 28px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .board li .nome { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .board li .punti { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .board li.me { background: rgba(50,82,204,.12); font-weight: 700; color: var(--primary); }
+  .board li.gap { justify-content: center; color: var(--muted); padding: 0; }
+  .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .choices button { margin: 0; padding: 0; aspect-ratio: 1.4; font-size: 44px; border-radius: 22px; }
+  .choices button:nth-child(2) { background: linear-gradient(135deg, var(--accent), #A02A33); box-shadow: 0 4px 24px rgba(200,54,64,.3); }
+  .choices button:nth-child(3) { background: linear-gradient(135deg, #EE7245, #D2552A); box-shadow: 0 4px 24px rgba(238,114,69,.3); }
+  .choices button:nth-child(4) { background: linear-gradient(135deg, #007CC2, #00609A); box-shadow: 0 4px 24px rgba(0,124,194,.3); }
   .hidden { display: none; }
 </style>
 </head>
@@ -63,21 +77,27 @@
   <div id="join">
     <p class="sub">Come ti chiami?</p>
     <form id="joinForm">
-      <input id="name" maxlength="30" autocomplete="nickname" placeholder="Il tuo nome" required>
+      <input id="name" maxlength="40" autocomplete="name" autocapitalize="words" placeholder="Nome e cognome" required>
       <button>Entra</button>
     </form>
   </div>
 
   <div id="play" class="hidden">
-    <p class="sub">Ciao <b id="who"></b>, scrivi la risposta!</p>
+    <p class="sub">Ciao <b id="who"></b>, <span id="hint">scrivi la risposta!</span></p>
+    <div id="choices" class="choices hidden"></div>
     <form id="answerForm">
       <input id="answer" maxlength="200" autocomplete="off" placeholder="Risposta" required>
       <button id="send">Invia</button>
     </form>
-    <p class="link" id="rename">Non sei tu? Cambia nome</p>
   </div>
 
   <p class="status" id="status"></p>
+
+  <div id="board" class="board hidden">
+    <h2>Classifica</h2>
+    <ol id="boardList"></ol>
+  </div>
+  <p class="link hidden" id="rename">Non sei tu? Cambia nome</p>
 </div>
 
 <script>
@@ -90,6 +110,7 @@
   let id = store.get("skydo-id");
   if (!id) { id = Math.random().toString(36).slice(2, 10); store.set("skydo-id", id); }
   let name = store.get("skydo-name");
+  let current = { n: 0, scelte: 0 };  // domanda in corso secondo il server
 
   function status(text, cls) { $("status").textContent = text; $("status").className = "status " + (cls || ""); }
 
@@ -102,8 +123,48 @@
     } catch { return { ok: false, error: "network" }; }
   }
 
+  // classifica: primi 5, poi "…" e la propria posizione se più in basso
+  async function refreshBoard() {
+    if ($("play").classList.contains("hidden")) return;
+    let data;
+    try { data = await (await fetch(`${SERVER}/classifica?id=${encodeURIComponent(id)}`)).json(); } catch { return; }
+    $("board").classList.toggle("hidden", !data.n);
+    if (data.n !== current.n || data.scelte !== current.scelte) setQuestion(data.n, data.scelte);
+    const rows = [...data.top];
+    if (data.me && data.me.pos > rows.length) {
+      if (data.me.pos > rows.length + 1) rows.push(null);
+      rows.push(data.me);
+    }
+    $("boardList").replaceChildren(...rows.map((row) => {
+      const item = document.createElement("li");
+      if (!row) { item.className = "gap"; item.textContent = "⋮"; return item; }
+      if (data.me && row.pos === data.me.pos) item.className = "me";
+      [["pos", row.pos + "."], ["nome", row.nome], ["punti", row.punti]].forEach(([cls, text]) =>
+        item.appendChild(Object.assign(document.createElement("span"), { className: cls, textContent: text })));
+      return item;
+    }));
+  }
+
+  // domanda a scelta multipla: pulsanti A, B, C...; altrimenti campo di testo
+  function setQuestion(n, scelte) {
+    const changed = n !== current.n;
+    current = { n, scelte };
+    if (changed && n) status("");
+    $("hint").textContent = scelte ? "scegli la risposta!" : "scrivi la risposta!";
+    $("answerForm").classList.toggle("hidden", !!scelte);
+    $("choices").classList.toggle("hidden", !scelte);
+    $("choices").replaceChildren(...Array.from({ length: scelte }, (_, i) => {
+      const button = document.createElement("button");
+      button.textContent = String.fromCharCode(65 + i);
+      button.onclick = () => send(button.textContent);
+      return button;
+    }));
+  }
+
   function showJoin(message) {
     $("play").classList.add("hidden");
+    $("board").classList.add("hidden");
+    $("rename").classList.add("hidden");
     $("join").classList.remove("hidden");
     $("name").value = name || "";
     $("name").focus();
@@ -113,51 +174,70 @@
   function showPlay() {
     $("join").classList.add("hidden");
     $("play").classList.remove("hidden");
+    $("rename").classList.remove("hidden");
     $("who").textContent = name;
+    refreshBoard();
     $("answer").focus();
   }
 
-  const NAME_TAKEN = "Questo nome è già usato da un altro giocatore, scegline un altro";
+  const NAME_TAKEN = "Questo nome e cognome è già usato da un altro giocatore";
+  const FULL_NAME = "Scrivi nome e cognome";
+  const isFullName = (text) => (text || "").trim().split(/\s+/).length >= 2;
 
   $("joinForm").onsubmit = async (e) => {
     e.preventDefault();
-    const candidate = $("name").value.trim();
+    const candidate = $("name").value.trim().split(/\s+/).join(" ");
     if (!candidate) return;
+    if (!isFullName(candidate)) return status(FULL_NAME, "err");
     status("Entro…");
     const result = await publish({ type: "join" }, candidate);
-    if (!result.ok) return status(result.error === "name_taken" ? NAME_TAKEN : "Connessione non riuscita, riprova", "err");
+    if (!result.ok) {
+      const errors = { name_taken: NAME_TAKEN, full_name: FULL_NAME };
+      return status(errors[result.error] || "Connessione non riuscita, riprova", "err");
+    }
     name = candidate;
     store.set("skydo-name", name);
     status("");
     showPlay();
   };
 
-  $("answerForm").onsubmit = async (e) => {
+  $("answerForm").onsubmit = (e) => {
     e.preventDefault();
     const answer = $("answer").value.trim();
-    if (!answer) return;
-    $("send").disabled = true;
+    if (answer) send(answer);
+  };
+
+  async function send(answer) {
+    const buttons = [$("send"), ...$("choices").children];
+    buttons.forEach((button) => { button.disabled = true; });
     status("Invio…");
-    const result = await publish({ type: "answer", answer });
-    $("send").disabled = false;
+    const result = await publish({ type: "answer", answer, domanda: current.n || undefined });
+    buttons.forEach((button) => { button.disabled = false; });
     if (result.ok) {
       $("answer").value = "";
       status(`Risposta alla domanda ${result.domanda} inviata: ${answer}`, "ok");
+      refreshBoard();
     } else if (result.error === "already_answered") {
       status(`Hai già risposto alla domanda ${result.domanda}`, "err");
+    } else if (result.error === "stale") {
+      await refreshBoard();
+      status(`È partita la domanda ${result.domanda}: rispondi a questa`, "err");
     } else if (result.error === "not_started") {
       status("La domanda non è ancora partita, aspetta il via", "err");
-    } else if (result.error === "name_taken") {
-      showJoin(NAME_TAKEN);
+    } else if (result.error === "name_taken" || result.error === "full_name") {
+      showJoin(result.error === "name_taken" ? NAME_TAKEN : FULL_NAME);
     } else {
       status("Invio non riuscito, riprova", "err");
     }
-    $("answer").focus();
-  };
+    if (!current.scelte) $("answer").focus();
+  }
 
   $("rename").onclick = () => showJoin();
+  setInterval(refreshBoard, 2000);
 
-  if (name) {
+  if (name && !isFullName(name)) {
+    showJoin(FULL_NAME);  // nome salvato da una versione precedente, senza cognome
+  } else if (name) {
     showPlay();
     // si ripresenta al conduttore (es. dopo un reset); se nel frattempo il nome è stato preso, ne chiede un altro
     publish({ type: "join" }).then((result) => { if (result.error === "name_taken") showJoin(NAME_TAKEN); });
