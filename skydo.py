@@ -1,6 +1,6 @@
-"""skydo: QR code per far rispondere i colleghi da telefono, risposte via ntfy.sh in un DataFrame.
+"""skydo da terminale (per prove/analisi; dal vivo si usa host.html): risposte via server.py in un DataFrame.
 
-Terminale:  python skydo.py [--quiz quiz.json] [--topic NOME] [--player-url URL]
+Terminale:  python skydo.py [--quiz quiz.json] [--topic NOME --key CHIAVE] [--player-url URL] [--server URL]
   invio = parte la domanda successiva, r = risultati, c = classifica, q = esci (salva il csv in results/)
 Notebook:   import skydo as q; q.start(); q.next_question(); ...; q.df()
 """
@@ -18,7 +18,7 @@ import pandas as pd
 import qrcode
 import requests
 
-NTFY = "https://ntfy.sh"
+SERVER_URL = "https://skydo.onrender.com"
 PLAYER_URL = "https://skypoggim.github.io/skydo/"
 HERE = Path(__file__).parent
 COLUMNS = ["domanda", "nome", "risposta", "corretta", "secondi", "ts", "id"]
@@ -27,6 +27,7 @@ _answers = []
 _players = {}
 _quiz = []
 _question = {"n": 0, "start": time.time(), "winner": None}
+_session = {"server": SERVER_URL, "topic": None, "key": None}
 
 
 def df():
@@ -58,19 +59,22 @@ def _is_correct(n, answer):
 
 
 def next_question():
-    """Da adesso le risposte valgono per la domanda successiva; il timer riparte."""
-    _question.update(n=_question["n"] + 1, start=time.time(), winner=None)
-    return _question["n"]
+    """Segna sul server l'inizio della domanda successiva: le risposte arrivate dopo valgono per lei."""
+    requests.post(f"{_session['server']}/{_session['topic']}", json={"type": "question", "key": _session["key"]}, timeout=60).raise_for_status()
+    return _question["n"] + 1
 
 
-def _handle(message, verbose):
-    arrived = time.time()
+def _handle(message, arrived, verbose):
+    """Smista un messaggio; ordine e tempi sono quelli del server, uguali per tutti."""
     try:
         payload = json.loads(message)
     except ValueError:
         payload = {"type": "answer", "answer": message}
     player_id = payload.get("id", "?")
     name = payload.get("name") or "?"
+    if payload.get("type") == "question":
+        _question.update(n=_question["n"] + 1, start=arrived, winner=None)
+        return
     _players[player_id] = name
     if payload.get("type") == "join":
         if verbose:
@@ -90,17 +94,18 @@ def _handle(message, verbose):
     print(f"  {mark} D{n}  {seconds:7.3f}s  {name}: {answer}{first}", flush=True)
 
 
-def _listen(topic, verbose):
-    """Resta in ascolto sullo stream JSON del topic (si riconnette se cade)."""
+def _listen(verbose, every=0.3):
+    """Interroga il server ogni `every` secondi per i messaggi nuovi della sessione."""
+    since = 0
     while True:
         try:
-            with requests.get(f"{NTFY}/{topic}/json", stream=True, timeout=90) as resp:
-                for line in resp.iter_lines():
-                    event = json.loads(line) if line else {}
-                    if event.get("event") == "message":
-                        _handle(event.get("message", ""), verbose)
-        except requests.RequestException:
+            resp = requests.get(f"{_session['server']}/{_session['topic']}", params={"since": since, "key": _session["key"]}, timeout=60)
+            for event in resp.json():
+                since = event["seq"]
+                _handle(event["message"], event["time"], verbose)
+        except (requests.RequestException, ValueError):
             pass
+        time.sleep(every)
 
 
 def load_quiz(path):
@@ -109,10 +114,15 @@ def load_quiz(path):
     return _quiz
 
 
-def start(player_url=PLAYER_URL, topic=None, verbose=True):
-    """Avvia l'ascolto in background e stampa il QR della pagina player per il topic."""
-    topic = topic or f"skydo-{secrets.token_urlsafe(9)}"
-    threading.Thread(target=_listen, args=(topic, verbose), daemon=True).start()
+def start(player_url=PLAYER_URL, topic=None, key=None, server=SERVER_URL, verbose=True):
+    """Sveglia il server, crea (o riprende) la sessione, avvia l'ascolto e stampa il QR della pagina player."""
+    topic = topic or f"skydo-{secrets.token_hex(3)}"
+    _session.update(server=server.rstrip("/"), topic=topic, key=key or secrets.token_hex(8))
+    print(f"Sveglio il server {_session['server']} (su Render free può volerci ~1 min)...", flush=True)
+    requests.get(_session["server"], timeout=120).raise_for_status()
+    requests.post(f"{_session['server']}/{topic}/host", json={"key": _session["key"]}, timeout=60).raise_for_status()
+    print(f"Sessione {topic}, chiave {_session['key']} (per riprenderla: --topic {topic} --key {_session['key']})")
+    threading.Thread(target=_listen, args=(verbose,), daemon=True).start()
     url = f"{player_url}?t={topic}"
     qr = qrcode.QRCode(border=1)
     qr.add_data(url)
@@ -132,12 +142,14 @@ def _save():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--quiz", default=HERE / "quiz.json", help="json con domande e risposte accettate")
-    parser.add_argument("--topic", help="topic ntfy (default: casuale)")
+    parser.add_argument("--topic", help="sessione (default: casuale)")
+    parser.add_argument("--key", help="chiave della sessione, per riprenderne una esistente")
     parser.add_argument("--player-url", default=PLAYER_URL, help="URL pubblico di index.html (GitHub Pages)")
+    parser.add_argument("--server", default=SERVER_URL, help="URL di server.py (Render)")
     args = parser.parse_args()
     if Path(args.quiz).exists():
         print(f"Quiz: {len(load_quiz(args.quiz))} domande da {args.quiz}")
-    start(args.player_url, args.topic)
+    start(args.player_url, args.topic, args.key, args.server)
     print("\ninvio = domanda successiva | r = risultati | c = classifica | q = esci\n")
     try:
         while True:

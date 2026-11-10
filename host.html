@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>skydo · conduttore</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<style>
+  @font-face { font-family: 'Sky Text'; src: url('assets/fonts/Sky-Text-Regular.ttf') format('truetype'); font-weight: 400; }
+  @font-face { font-family: 'Sky Text'; src: url('assets/fonts/Sky-Text-Bold.ttf') format('truetype'); font-weight: 700 900; }
+  :root {
+    --bg: #ECEEF7; --surface: rgba(255,255,255,.72); --primary: #3252CC; --primary-dark: #2040A8;
+    --accent: #C83640; --gold: #B8720A; --ok: #1E8E5A; --text: #1C2040; --muted: #7274A4;
+  }
+  * { box-sizing: border-box; margin: 0; -webkit-tap-highlight-color: transparent; }
+  body {
+    min-height: 100dvh; padding: 16px; font-family: 'Sky Text', sans-serif; color: var(--text);
+    background:
+      radial-gradient(circle at 15% 0%, rgba(50,82,204,.18), transparent 45%),
+      radial-gradient(circle at 85% 15%, rgba(200,54,64,.10), transparent 40%),
+      radial-gradient(circle at 100% 70%, rgba(0,124,194,.10), transparent 45%),
+      var(--bg);
+  }
+  main { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  .card {
+    padding: 22px; border-radius: 22px; background: var(--surface); backdrop-filter: blur(14px);
+    border: 1px solid rgba(255,255,255,.9); box-shadow: 0 12px 48px rgba(50,82,204,.12);
+  }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 32px; font-weight: 700; letter-spacing: -1px; }
+  h1 span {
+    background: linear-gradient(135deg, var(--primary), var(--accent));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  h1 small { font-size: 16px; color: var(--muted); font-weight: 400; letter-spacing: 0; }
+  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); margin-bottom: 8px; }
+  .muted { color: var(--muted); }
+  .server { font-size: 14px; }
+  textarea, input[type=text] {
+    width: 100%; font: inherit; font-size: 15px; padding: 12px 14px; border-radius: 14px;
+    border: 2px solid rgba(50,82,204,.15); background: #fff; color: var(--text); outline: none;
+  }
+  textarea { min-height: 200px; font-family: ui-monospace, monospace; font-size: 13px; }
+  textarea:focus, input:focus { border-color: var(--primary); }
+  label { display: block; margin: 14px 0 6px; font-weight: 700; }
+  button {
+    font: inherit; font-weight: 700; border: none; border-radius: 50px; cursor: pointer;
+    padding: 12px 20px; font-size: 16px; color: var(--primary); background: rgba(50,82,204,.1);
+    transition: transform .1s;
+  }
+  button:active { transform: scale(.97); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.main {
+    width: 100%; padding: 20px; font-size: 24px; letter-spacing: 1px; color: #fff;
+    background: linear-gradient(135deg, var(--primary), var(--primary-dark)); box-shadow: 0 4px 24px rgba(50,82,204,.35);
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .stats { display: flex; gap: 10px; flex-wrap: wrap; }
+  .stat { padding: 8px 14px; border-radius: 50px; background: rgba(50,82,204,.08); font-weight: 700; }
+  .question { font-size: 22px; font-weight: 700; line-height: 1.3; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+  .tabs button.active { background: var(--primary); color: #fff; }
+  table { width: 100%; border-collapse: collapse; font-size: 16px; }
+  td, th { padding: 8px 6px; text-align: left; border-bottom: 1px solid rgba(50,82,204,.08); }
+  th { font-size: 13px; color: var(--muted); font-weight: 400; text-transform: uppercase; letter-spacing: 1px; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr.yes td:first-child { color: var(--ok); font-weight: 700; }
+  tr.no td:first-child { color: var(--accent); font-weight: 700; }
+  tr.first { background: rgba(184,114,10,.10); }
+  tr.first td { font-weight: 700; }
+  .answer { word-break: break-word; }
+  .error { color: var(--accent); font-weight: 700; }
+  .hidden { display: none !important; }
+  #qrModal {
+    position: fixed; inset: 0; background: rgba(28,32,64,.55); display: flex;
+    align-items: center; justify-content: center; padding: 16px; z-index: 10;
+  }
+  #qrModal .card { background: #fff; text-align: center; max-width: 520px; width: 100%; }
+  #qrCanvas { width: 100%; max-width: 420px; height: auto; image-rendering: pixelated; }
+  #qrUrl { word-break: break-all; font-size: 14px; margin: 10px 0 16px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>sky<span>do</span> <small>conduttore</small></h1>
+    <span class="server muted" id="serverStatus">Sveglio il server…</span>
+  </header>
+
+  <!-- Setup -->
+  <section class="card" id="setup">
+    <h2>Nuova partita</h2>
+    <p id="quizInfo" class="muted">Carico quiz.json…</p>
+    <label for="sessionName">Nome sessione (facoltativo, finisce nel QR)</label>
+    <input type="text" id="sessionName" maxlength="40" placeholder="es. quiz-natale">
+    <p class="error" id="setupError"></p>
+    <div style="margin-top:16px"><button class="main" id="create" disabled>Crea partita</button></div>
+  </section>
+
+  <!-- Partita -->
+  <section class="hidden" id="game">
+    <div class="card">
+      <div class="row" style="justify-content: space-between">
+        <div class="stats">
+          <span class="stat" id="playersStat">0 giocatori</span>
+          <span class="stat" id="questionStat">Domanda 0/0</span>
+        </div>
+        <div class="row">
+          <button id="showQr">QR</button>
+          <button id="csv">CSV</button>
+          <button id="reset">Nuova partita</button>
+        </div>
+      </div>
+      <p class="question" id="questionText" style="margin-top:16px"></p>
+      <p class="error" id="gameError"></p>
+      <div style="margin-top:16px"><button class="main" id="next">▶ Domanda 1</button></div>
+    </div>
+
+    <div class="card">
+      <div class="tabs">
+        <button class="active" data-tab="live">Live</button>
+        <button data-tab="board">Classifica</button>
+        <button data-tab="players">Giocatori</button>
+      </div>
+      <div id="live"></div>
+      <div id="board" class="hidden"></div>
+      <div id="players" class="hidden"></div>
+    </div>
+  </section>
+</main>
+
+<div id="qrModal" class="hidden">
+  <div class="card">
+    <h2>Inquadra per giocare</h2>
+    <canvas id="qrCanvas"></canvas>
+    <p id="qrUrl" class="muted"></p>
+    <div class="row" style="justify-content:center">
+      <button id="qrDownload">Scarica PNG</button>
+      <button id="qrClose">Chiudi</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const SERVER = "https://skydo.onrender.com";  // URL di server.py su Render
+  const PLAYER_URL = new URL("./", location.href).href;  // index.html, stessa cartella
+  const STORE_KEY = "skydo-host";
+  const $ = (id) => document.getElementById(id);
+
+  const store = {
+    get: () => { try { return JSON.parse(localStorage.getItem(STORE_KEY)); } catch { return null; } },
+    set: (value) => { try { localStorage.setItem(STORE_KEY, JSON.stringify(value)); } catch {} },
+    clear: () => { try { localStorage.removeItem(STORE_KEY); } catch {} },
+  };
+
+  let session = null;  // {topic, key, quiz}
+  let state = null;
+  let polling = null;
+  let tab = "live";
+
+  function freshState() {
+    return { since: 0, n: 0, start: null, players: {}, answers: [], winners: {} };
+  }
+
+  function normalize(text) {
+    return String(text).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+      .replace(/[^a-z0-9]+/g, " ").trim();
+  }
+
+  function isCorrect(n, answer) {
+    const question = session.quiz[n - 1];
+    if (!question) return null;
+    return question.risposte.some((accepted) => normalize(accepted) === normalize(answer));
+  }
+
+  function randomId(length) {
+    const bytes = crypto.getRandomValues(new Uint8Array(length));
+    return Array.from(bytes, (byte) => "abcdefghijklmnopqrstuvwxyz0123456789"[byte % 36]).join("");
+  }
+
+  function parseQuiz(text) {
+    const quiz = JSON.parse(text);
+    if (!Array.isArray(quiz) || !quiz.length) throw new Error("serve una lista di domande");
+    quiz.forEach((question, i) => {
+      if (typeof question.domanda !== "string" || !Array.isArray(question.risposte) || !question.risposte.length)
+        throw new Error(`domanda ${i + 1}: servono "domanda" e "risposte" (lista)`);
+    });
+    return quiz;
+  }
+
+  // ---------- server ----------
+  async function wakeServer() {
+    for (let attempt = 0; attempt < 30; attempt++) {
+      try {
+        const resp = await fetch(SERVER + "/");
+        if (resp.ok) { $("serverStatus").textContent = "● server pronto"; $("create").disabled = false; return; }
+      } catch {}
+      $("serverStatus").textContent = `Sveglio il server… (${(attempt + 1) * 5}s)`;
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
+    $("serverStatus").textContent = "Server non raggiungibile: ricarica la pagina";
+  }
+
+  async function post(path, body) {
+    const resp = await fetch(SERVER + "/" + path, { method: "POST", body: JSON.stringify(body) });
+    if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || "errore " + resp.status);
+    return resp.json();
+  }
+
+  let pollBusy = false;
+  async function poll() {
+    if (pollBusy || !session) return;
+    pollBusy = true;
+    try {
+      const resp = await fetch(`${SERVER}/${session.topic}?since=${state.since}&key=${session.key}`);
+      if (resp.status === 404) { $("gameError").textContent = "Sessione persa: il server si è riavviato. Crea una nuova partita."; return; }
+      if (!resp.ok) return;
+      const events = await resp.json();
+      events.forEach(handle);
+      if (events.length) render();
+      $("gameError").textContent = "";
+    } catch {} finally { pollBusy = false; }
+  }
+
+  function handle(event) {
+    if (event.seq <= state.since) return;
+    state.since = event.seq;
+    let payload;
+    try { payload = JSON.parse(event.message); } catch { payload = { type: "answer", answer: event.message }; }
+    if (payload.type === "question") {
+      state.n += 1;
+      state.start = event.time;
+      return;
+    }
+    const id = payload.id || "?";
+    const name = String(payload.name || "?").slice(0, 30);
+    state.players[id] = name;
+    if (payload.type !== "answer") return;
+    const correct = isCorrect(state.n, payload.answer || "");
+    const answer = {
+      domanda: state.n, nome: name, risposta: String(payload.answer || "").slice(0, 200), corretta: correct,
+      secondi: state.start ? Math.round((event.time - state.start) * 1000) / 1000 : null,
+      ts: new Date(event.time * 1000).toISOString(), id,
+    };
+    if (correct && state.n && !(state.n in state.winners)) { state.winners[state.n] = answer; answer.primo = true; }
+    state.answers.push(answer);
+  }
+
+  // ---------- render ----------
+  function cell(row, text, cls) {
+    const td = row.insertCell();
+    td.textContent = text;
+    if (cls) td.className = cls;
+    return td;
+  }
+
+  function table(headers) {
+    const element = document.createElement("table");
+    const head = element.createTHead().insertRow();
+    headers.forEach((header) => { const th = document.createElement("th"); th.textContent = header; head.appendChild(th); });
+    return element;
+  }
+
+  function leaderboard() {
+    const scores = {};
+    Object.values(state.winners).forEach((answer) => {
+      const score = scores[answer.id] || (scores[answer.id] = { nome: answer.nome, vittorie: 0, secondi: 0 });
+      score.vittorie += 1;
+      score.secondi += answer.secondi || 0;
+    });
+    return Object.values(scores).sort((a, b) => b.vittorie - a.vittorie || a.secondi - b.secondi);
+  }
+
+  function render() {
+    const total = session.quiz.length;
+    const players = Object.keys(state.players).length;
+    $("playersStat").textContent = `${players} giocator${players === 1 ? "e" : "i"}`;
+    $("questionStat").textContent = `Domanda ${state.n}/${total}`;
+    $("questionText").textContent = state.n
+      ? session.quiz[state.n - 1].domanda
+      : "Mostra il QR e aspetta che i giocatori si iscrivano.";
+    const next = $("next");
+    if (!next.dataset.busy) {
+      next.disabled = state.n >= total;
+      next.textContent = state.n >= total ? "Domande finite" : `▶ Domanda ${state.n + 1}`;
+    }
+
+    const live = table(["", "Nome", "Risposta", "Secondi"]);
+    state.answers.filter((answer) => answer.domanda === state.n && state.n > 0).forEach((answer) => {
+      const row = live.insertRow();
+      row.className = (answer.corretta ? "yes" : "no") + (answer.primo ? " first" : "");
+      cell(row, answer.corretta ? "✓" : "✗");
+      cell(row, (answer.primo ? "🏆 " : "") + answer.nome);
+      cell(row, answer.risposta, "answer");
+      cell(row, answer.secondi.toFixed(3), "num");
+    });
+    $("live").replaceChildren(state.n ? live : Object.assign(document.createElement("p"), { className: "muted", textContent: "Le risposte appariranno qui." }));
+
+    const board = table(["#", "Nome", "Vittorie", "Secondi"]);
+    leaderboard().forEach((score, i) => {
+      const row = board.insertRow();
+      cell(row, i + 1); cell(row, score.nome); cell(row, score.vittorie, "num"); cell(row, score.secondi.toFixed(3), "num");
+    });
+    $("board").replaceChildren(board);
+
+    const list = table(["Giocatore", "Risposte"]);
+    Object.entries(state.players).forEach(([id, name]) => {
+      const row = list.insertRow();
+      cell(row, name); cell(row, state.answers.filter((answer) => answer.id === id).length, "num");
+    });
+    $("players").replaceChildren(list);
+  }
+
+  // ---------- QR ----------
+  function playerLink() { return `${PLAYER_URL}?t=${session.topic}`; }
+
+  function drawQr() {
+    const qr = qrcode(0, "M");
+    qr.addData(playerLink());
+    qr.make();
+    const count = qr.getModuleCount(), cellSize = 20, margin = 2;
+    const canvas = $("qrCanvas");
+    canvas.width = canvas.height = (count + margin * 2) * cellSize;
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = "#1C2040";
+    for (let r = 0; r < count; r++)
+      for (let c = 0; c < count; c++)
+        if (qr.isDark(r, c)) context.fillRect((c + margin) * cellSize, (r + margin) * cellSize, cellSize, cellSize);
+    $("qrUrl").textContent = playerLink();
+  }
+
+  function download(name, href) {
+    const link = Object.assign(document.createElement("a"), { href, download: name });
+    document.body.appendChild(link); link.click(); link.remove();
+  }
+
+  // ---------- flusso ----------
+  function startGame() {
+    state = freshState();
+    $("setup").classList.add("hidden");
+    $("game").classList.remove("hidden");
+    drawQr();
+    render();
+    clearInterval(polling);
+    polling = setInterval(poll, 500);
+    poll();
+  }
+
+  let quiz = null;
+  async function loadQuiz() {
+    try {
+      const resp = await fetch("quiz.json", { cache: "no-store" });
+      quiz = parseQuiz(await resp.text());
+      $("quizInfo").textContent = `Quiz: ${quiz.length} domande da quiz.json`;
+    } catch (error) {
+      $("quizInfo").textContent = "";
+      $("setupError").textContent = "quiz.json non valido: " + error.message;
+    }
+  }
+
+  $("create").onclick = async () => {
+    $("setupError").textContent = "";
+    if (!quiz) { $("setupError").textContent = "Manca un quiz.json valido."; return; }
+    const name = normalize($("sessionName").value).replace(/ /g, "-");
+    const topic = (name || "skydo") + "-" + randomId(5);
+    const key = randomId(16);
+    try { await post(topic + "/host", { key }); } catch (error) { $("setupError").textContent = "Errore server: " + error.message; return; }
+    session = { topic, key, quiz };
+    store.set(session);
+    startGame();
+    $("qrModal").classList.remove("hidden");
+  };
+
+  $("next").onclick = async () => {
+    const next = $("next");
+    next.dataset.busy = "1";
+    next.disabled = true;
+    next.textContent = "…";
+    try { await post(session.topic, { type: "question", key: session.key }); while (pollBusy) await new Promise((r) => setTimeout(r, 50)); await poll(); }
+    catch (error) { $("gameError").textContent = "Domanda non partita: " + error.message; }
+    delete next.dataset.busy;
+    render();
+  };
+
+  $("csv").onclick = () => {
+    const columns = ["domanda", "nome", "risposta", "corretta", "secondi", "ts", "id"];
+    const quote = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const lines = [columns.join(","), ...state.answers.map((answer) => columns.map((column) => quote(answer[column])).join(","))];
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
+    download(`skydo_${session.topic}_${stamp}.csv`, URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" })));
+  };
+
+  $("reset").onclick = () => {
+    if (!confirm("Chiudere questa partita e crearne una nuova? Scarica prima il CSV se ti serve.")) return;
+    clearInterval(polling);
+    store.clear();
+    session = state = null;
+    $("game").classList.add("hidden");
+    $("setup").classList.remove("hidden");
+  };
+
+  $("showQr").onclick = () => $("qrModal").classList.remove("hidden");
+  $("qrClose").onclick = () => $("qrModal").classList.add("hidden");
+  $("qrDownload").onclick = () => download(`skydo_qr_${session.topic}.png`, $("qrCanvas").toDataURL("image/png"));
+
+  document.querySelectorAll(".tabs button").forEach((button) => {
+    button.onclick = () => {
+      tab = button.dataset.tab;
+      document.querySelectorAll(".tabs button").forEach((other) => other.classList.toggle("active", other === button));
+      ["live", "board", "players"].forEach((id) => $(id).classList.toggle("hidden", id !== tab));
+    };
+  });
+
+  wakeServer();
+  loadQuiz();
+  session = store.get();
+  if (session && session.topic && session.key && Array.isArray(session.quiz)) startGame();
+</script>
+</body>
+</html>
