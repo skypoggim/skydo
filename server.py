@@ -4,10 +4,13 @@ POST /msg                   messaggio dei telefoni {id, name, type: join|answer,
                             409 se: manca il cognome, nome già preso da un altro id, domanda non partita, già risposto a questa domanda
 GET  /msg?since=N&key=K     {epoch, messages}: messaggi con seq > N, solo conduttore
 GET  /classifica?id=X       {n, scelte, top: primi 5, me: posizione di X}, pubblica; scelte = n. opzioni (0 = risposta aperta)
+GET  /attesa?n=N            {n, scelte} appena la domanda in corso non è più N (long-polling, max WAIT s), pubblica
+GET  /quiz?key=K            domande e risposte, solo conduttore
 POST /login | /question | /reset   {"key": K[, "n": domanda]}: verifica chiave, avvia domanda, azzera la partita
 `epoch` cambia a ogni reset o riavvio, così il conduttore sa che la numerazione è ripartita.
 Punti: risposta giusta = da MAX_POINTS (subito) a MIN_POINTS (dopo `tempo` secondi, default DEFAULT_TIME), sbagliata = 0.
-Correttezza da quiz.json; a parità di punti vince chi ha meno secondi totali sulle risposte giuste.
+Correttezza da quiz.json (Secret File di Render, mai nel repo pubblico): nelle domande aperte sono tollerati
+piccoli refusi (vedi _matches); a parità di punti vince chi ha meno secondi totali sulle risposte giuste.
 """
 import hmac
 import json
@@ -24,12 +27,18 @@ HOST_KEY = os.environ.get("HOST_KEY", "")
 MAX_BODY = 2000
 MAX_MESSAGES = 50000
 MAX_POINTS, MIN_POINTS, DEFAULT_TIME = 1000, 500, 30
-QUIZ_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "quiz.json")
+WAIT = 25
+# su Render il Secret File sta in /etc/secrets, in locale si usa quiz.json accanto al server (ignorato da git)
+QUIZ_PATHS = ["/etc/secrets/quiz.json", os.path.join(os.path.dirname(os.path.abspath(__file__)), "quiz.json")]
 
 
 def _load_quiz():
-    with open(QUIZ_PATH, encoding="utf-8") as f:
-        return json.load(f)
+    for path in QUIZ_PATHS:
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+    print("ATTENZIONE: quiz.json non trovato", flush=True)
+    return []
 
 
 def _normalize(text):
@@ -38,12 +47,31 @@ def _normalize(text):
     return re.sub(r"[^a-z0-9]+", " ", text).strip()
 
 
+def _distance(a, b):
+    """Distanza di Levenshtein (lettere inserite, tolte o cambiate)."""
+    row = list(range(len(b) + 1))
+    for i, char_a in enumerate(a, 1):
+        prev, row[0] = row[0], i
+        for j, char_b in enumerate(b, 1):
+            prev, row[j] = row[j], min(row[j] + 1, row[j - 1] + 1, prev + (char_a != char_b))
+    return row[-1]
+
+
+def _matches(answer, accepted, open_question):
+    """Uguali dopo la normalizzazione; nelle domande aperte basta 1 errore ogni 8 lettere (es. 'pesce' per 'pesci')."""
+    answer, accepted = _normalize(answer), _normalize(accepted)
+    if answer == accepted:
+        return True
+    return open_question and len(accepted) >= 8 and _distance(answer, accepted) <= len(accepted) // 8
+
+
 def _score(n, answer, seconds):
     """(corretta, punti) della risposta alla domanda n arrivata dopo `seconds`."""
     if not 0 < n <= len(_game["quiz"]):
         return False, 0
     question = _game["quiz"][n - 1]
-    if _normalize(answer) not in {_normalize(accepted) for accepted in question["risposte"]}:
+    open_question = not question.get("opzioni")
+    if not any(_matches(answer, accepted, open_question) for accepted in question["risposte"]):
         return False, 0
     ratio = min(seconds / float(question.get("tempo", DEFAULT_TIME)), 1)
     return True, round(MAX_POINTS - (MAX_POINTS - MIN_POINTS) * ratio)
@@ -62,6 +90,13 @@ def _ranking():
 
 _game = _new_game()
 _lock = threading.Lock()
+_changed = threading.Condition(_lock)  # svegliata a ogni via o reset, per /attesa
+
+
+def _current():
+    n = _game["n"]
+    question = _game["quiz"][n - 1] if 0 < n <= len(_game["quiz"]) else {}
+    return {"n": n, "scelte": len(question.get("opzioni", []))}
 
 
 def _is_host(key):
@@ -105,7 +140,20 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self._send(204)
 
+    # input malformato (numeri non numeri ecc.): 400 con gli header CORS invece di una connessione chiusa
     def do_GET(self):
+        self._safe(self._get)
+
+    def do_POST(self):
+        self._safe(self._post)
+
+    def _safe(self, handler):
+        try:
+            handler()
+        except (ValueError, TypeError, KeyError):
+            self._send(400)
+
+    def _get(self):
         url = urlparse(self.path)
         if url.path == "/":
             return self._send(200, {"status": "ok"})
@@ -115,22 +163,29 @@ class Handler(BaseHTTPRequestHandler):
             with _lock:
                 ranking = [{"pos": i + 1, "nome": score["nome"], "punti": score["punti"], "id": pid}
                            for i, (pid, score) in enumerate(_ranking())]
-                n = _game["n"]
-                question = _game["quiz"][n - 1] if 0 < n <= len(_game["quiz"]) else {}
+                current = _current()
             me = next((row for row in ranking if row["id"] == player_id), None)
             for row in ranking:
                 row.pop("id")
-            return self._send(200, {"n": n, "scelte": len(question.get("opzioni", [])), "top": ranking[:5], "me": me})
-        if url.path != "/msg":
+            return self._send(200, {**current, "top": ranking[:5], "me": me})
+        if url.path == "/attesa":
+            seen = int(query.get("n", ["0"])[0] or 0)
+            with _changed:
+                epoch = _game["epoch"]
+                _changed.wait_for(lambda: _game["n"] != seen or _game["epoch"] != epoch, timeout=WAIT)
+                return self._send(200, _current())
+        if url.path not in ("/msg", "/quiz"):
             return self._send(404)
         if not _is_host(query.get("key", [""])[0]):
             return self._send(403)
+        if url.path == "/quiz":
+            return self._send(200, {"quiz": _game["quiz"]})
         since = int(query.get("since", ["0"])[0] or 0)
         with _lock:
             body = {"epoch": _game["epoch"], "messages": _game["messages"][since:]}
         self._send(200, body)
 
-    def do_POST(self):
+    def _post(self):
         path = urlparse(self.path).path
         length = int(self.headers.get("Content-Length", 0))
         if not 0 < length <= MAX_BODY:
@@ -184,8 +239,10 @@ class Handler(BaseHTTPRequestHandler):
                 _game["n"] = int(payload.get("n") or _game["n"] + 1)
                 _game["start"] = time.time()
                 _append({"type": "question", "domanda": _game["n"]}, _game["start"])
+                _changed.notify_all()
             elif path == "/reset":
                 _game.update(_new_game())
+                _changed.notify_all()
             self._send(200, {"epoch": _game["epoch"]})
 
     def log_message(self, *args):
@@ -195,4 +252,6 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     print(f"skydo server su :{port}" + ("" if HOST_KEY else " (ATTENZIONE: HOST_KEY non impostata)"), flush=True)
-    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
+    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+    server.daemon_threads = True
+    server.serve_forever()

@@ -193,6 +193,7 @@
         // server riavviato (o reset da un altro dispositivo): la numerazione riparte, la partita in corso resta
         state.since = 0;
         $("gameError").textContent = "Il server si è riavviato: continuo con le risposte già ricevute.";
+        loadQuiz();
       }
       epoch = data.epoch;
       data.messages.forEach(handle);
@@ -212,7 +213,7 @@
     // correttezza, secondi e punti li calcola il server (stessi numeri che vedono i telefoni)
     state.answers.push({
       domanda: payload.domanda, nome: state.players[id], risposta: payload.answer, corretta: payload.corretta,
-      secondi: payload.secondi, punti: payload.punti, primo: payload.primo, ts: new Date(event.time * 1000).toISOString(), id,
+      secondi: Number(payload.secondi) || 0, punti: Number(payload.punti) || 0, primo: !!payload.primo, ts: new Date(event.time * 1000).toISOString(), id,
     });
   }
 
@@ -318,9 +319,10 @@
     $("loginError").textContent = message || "";
   }
 
-  function enter() {
+  async function enter() {
     $("login").classList.add("hidden");
     $("game").classList.remove("hidden");
+    await loadQuiz();
     render();
     poll();
   }
@@ -393,15 +395,19 @@
     };
   });
 
+  // le domande stanno solo sul server (Secret File di Render), lette con la chiave
   async function loadQuiz() {
     try {
-      quiz = await (await fetch("quiz.json", { cache: "no-store" })).json();
-    } catch { $("gameError").textContent = "quiz.json non leggibile"; }
+      const resp = await fetch(`${SERVER}/quiz?key=${encodeURIComponent(key)}`);
+      if (!resp.ok) throw new Error();
+      quiz = (await resp.json()).quiz;
+      if (!quiz.length) $("gameError").textContent = "Nessuna domanda sul server: carica quiz.json come Secret File su Render";
+    } catch { $("gameError").textContent = "Domande non lette dal server, ricarica la pagina"; }
+    render();
   }
 
   (async () => {
     drawQr();
-    await loadQuiz();
     if (!(await wakeServer())) return;
     if (key) enter(); else logout();
     setInterval(poll, 500);

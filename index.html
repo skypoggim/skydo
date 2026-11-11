@@ -233,7 +233,17 @@
   }
 
   $("rename").onclick = () => showJoin();
-  setInterval(refreshBoard, 2000);
+  setInterval(refreshBoard, 3000);
+
+  // il server risponde appena parte un'altra domanda (long-polling), così pulsanti e campo cambiano subito al via
+  (async function waitQuestion() {
+    for (;;) {
+      try {
+        const data = await (await fetch(`${SERVER}/attesa?n=${current.n}`)).json();
+        if (data.n !== current.n || data.scelte !== current.scelte) setQuestion(data.n, data.scelte);
+      } catch { await new Promise((resolve) => setTimeout(resolve, 2000)); }
+    }
+  })();
 
   if (name && !isFullName(name)) {
     showJoin(FULL_NAME);  // nome salvato da una versione precedente, senza cognome

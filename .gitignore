@@ -1,1 +1,3 @@
 __pycache__/
+# domande e risposte: stanno solo nel Secret File di Render
+quiz.json
