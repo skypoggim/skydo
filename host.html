@@ -35,7 +35,9 @@
   h1 small { font-size: 16px; color: var(--muted); font-weight: 400; letter-spacing: 0; }
   h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); margin-bottom: 12px; }
   .muted { color: var(--muted); }
-  .server { font-size: 14px; }
+  .server { font-size: 14px; display: inline-flex; align-items: center; gap: 8px; }
+  .server::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .server.ready::before { background: var(--ok); box-shadow: 0 0 0 4px rgba(30,142,90,.15); }
   input[type=password] {
     width: 100%; font: inherit; font-size: 20px; padding: 14px 16px; border-radius: 14px;
     border: 2px solid rgba(50,82,204,.15); background: #fff; color: var(--text); outline: none;
@@ -53,24 +55,54 @@
     background: linear-gradient(135deg, var(--primary), var(--primary-dark)); box-shadow: 0 4px 24px rgba(50,82,204,.35);
   }
   button.danger { color: var(--accent); background: rgba(200,54,64,.1); }
-  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-  .stats { display: flex; gap: 10px; flex-wrap: wrap; }
-  .stat { padding: 8px 14px; border-radius: 50px; background: rgba(50,82,204,.08); font-weight: 700; }
-  .question { font-size: 22px; font-weight: 700; line-height: 1.3; }
+  #game { display: flex; flex-direction: column; gap: 14px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .toolbar button { padding: 10px 18px; font-size: 15px; }
+  .stats { display: flex; gap: 24px; }
+  .stat { display: flex; flex-direction: column; line-height: 1.1; }
+  .stat b { font-size: 28px; font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); }
+  .question { white-space: pre-wrap; font-size: 22px; font-weight: 700; line-height: 1.3; margin-top: 20px; padding-top: 18px; border-top: 1px solid rgba(50,82,204,.1); }
+  .question.idle { font-weight: 400; color: var(--muted); font-size: 18px; }
   .options { list-style: none; padding: 0; margin-top: 10px; display: grid; gap: 6px; }
-  .options li { padding: 8px 14px; border-radius: 12px; background: rgba(50,82,204,.06); font-size: 18px; }
-  .options li.right { background: rgba(30,142,90,.14); color: var(--ok); font-weight: 700; }
-  .tabs { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
-  .tabs button.active { background: var(--primary); color: #fff; }
-  table { width: 100%; border-collapse: collapse; font-size: 16px; }
-  td, th { padding: 8px 6px; text-align: left; border-bottom: 1px solid rgba(50,82,204,.08); }
-  th { font-size: 13px; color: var(--muted); font-weight: 400; text-transform: uppercase; letter-spacing: 1px; }
-  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  tr.yes td:first-child { color: var(--ok); font-weight: 700; }
-  tr.no td:first-child { color: var(--accent); font-weight: 700; }
-  tr.first { background: rgba(184,114,10,.10); }
-  tr.first td { font-weight: 700; }
-  .answer { word-break: break-word; }
+  .options:empty { display: none; }
+  .options { grid-template-columns: 1fr 1fr; }
+  .options li { display: flex; gap: 10px; align-items: center; padding: 10px 14px; border-radius: 12px; background: rgba(50,82,204,.06); font-size: 17px; }
+  .options li b { width: 26px; height: 26px; flex: none; display: grid; place-items: center; border-radius: 8px; background: #fff; font-size: 14px; }
+  .options li.right { background: rgba(30,142,90,.12); color: var(--ok); font-weight: 700; }
+  .options li.right b { background: var(--ok); color: #fff; }
+  .tabs { display: inline-flex; gap: 4px; padding: 4px; margin-bottom: 14px; border-radius: 50px; background: rgba(50,82,204,.08); }
+  .tabs button { padding: 8px 18px; font-size: 15px; background: transparent; }
+  .tabs button.active { background: #fff; box-shadow: 0 2px 8px rgba(50,82,204,.15); }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 16px; }
+  td, th { padding: 10px 8px; text-align: left; vertical-align: middle; border-bottom: 1px solid rgba(50,82,204,.08); }
+  th { font-size: 12px; color: var(--muted); font-weight: 400; text-transform: uppercase; letter-spacing: 1px; }
+  tbody tr:last-child td { border-bottom: none; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .answer { overflow-wrap: anywhere; }
+  .mark { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  tr.yes .mark { background: var(--ok); }
+  tr.no .mark { background: var(--accent); opacity: .55; }
+  tr.no td:not(:first-child) { color: var(--muted); }
+  tr.first td { font-weight: 700; background: rgba(184,114,10,.08); }
+  .badge { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 50px; font-size: 12px; font-weight: 700;
+    letter-spacing: .5px; color: var(--gold); background: rgba(184,114,10,.14); vertical-align: 2px; }
+  .pos { color: var(--muted); font-weight: 700; }
+  tr.podium .pos { color: var(--primary); }
+  tr.podium:first-child td { font-weight: 700; }
+  .empty { color: var(--muted); padding: 18px 0; text-align: center; }
+  /* larghezze colonne (table-layout fixed: la colonna senza larghezza prende il resto) */
+  .c-mark { width: 34px; } .c-pos { width: 44px; } .c-live-name { width: 38%; }
+  .c-sec { width: 64px; } .c-pts { width: 76px; } .c-ok { width: 72px; }
+  @media (max-width: 560px) {
+    .card { padding: 18px 16px; }
+    .options { grid-template-columns: 1fr; }
+    td, th { padding: 10px 5px; } td { font-size: 15px; }
+    .c-mark { width: 20px; } .c-pos { width: 30px; } .c-live-name { width: 44%; } .c-pts { width: 54px; } .c-ok { width: 56px; }
+    .hide-sm { display: none; }
+  }
   .error { color: var(--accent); font-weight: 700; min-height: 1em; margin-top: 10px; }
   .hidden { display: none !important; }
   #qrModal {
@@ -102,10 +134,10 @@
   <!-- Partita -->
   <section class="hidden" id="game">
     <div class="card">
-      <div class="row" style="justify-content: space-between">
+      <div class="toolbar">
         <div class="stats">
-          <span class="stat" id="playersStat">0 giocatori</span>
-          <span class="stat" id="questionStat">Domanda 0/0</span>
+          <div class="stat"><b id="playersStat">0</b><span id="playersLabel">giocatori</span></div>
+          <div class="stat"><b id="questionStat">0/0</b><span>domanda</span></div>
         </div>
         <div class="row">
           <button id="showQr">QR</button>
@@ -113,10 +145,10 @@
           <button class="danger" id="reset">Reset</button>
         </div>
       </div>
-      <p class="question" id="questionText" style="margin-top:16px"></p>
+      <p class="question" id="questionText"></p>
       <ol class="options" id="options"></ol>
       <p class="error" id="gameError"></p>
-      <div style="margin-top:8px"><button class="main" id="next" disabled>▶ Domanda 1</button></div>
+      <div style="margin-top:14px"><button class="main" id="next" disabled>Avvia domanda 1</button></div>
     </div>
 
     <div class="card">
@@ -172,7 +204,7 @@
   async function wakeServer() {
     for (let attempt = 0; attempt < 30; attempt++) {
       try {
-        if ((await fetch(SERVER + "/")).ok) { $("serverStatus").textContent = "● server pronto"; return true; }
+        if ((await fetch(SERVER + "/")).ok) { $("serverStatus").textContent = "server pronto"; $("serverStatus").classList.add("ready"); return true; }
       } catch {}
       $("serverStatus").textContent = `Sveglio il server… (${(attempt + 1) * 5}s)`;
       await new Promise((resolve) => setTimeout(resolve, 5000));
@@ -218,16 +250,31 @@
   }
 
   // ---------- render ----------
-  function table(headers, rows) {
+  // columns: [{label, cls, col}], col = classe CSS della larghezza; ogni cella è testo o un nodo DOM, con la classe della sua colonna
+  function table(columns, rows, emptyText) {
+    if (!rows.length) return Object.assign(document.createElement("p"), { className: "empty", textContent: emptyText });
     const element = document.createElement("table");
+    const colgroup = element.appendChild(document.createElement("colgroup"));
+    columns.forEach(({ col, cls }) => { colgroup.appendChild(document.createElement("col")).className = [col, (cls || "").includes("hide-sm") ? "hide-sm" : ""].join(" "); });
     const head = element.createTHead().insertRow();
-    headers.forEach((header) => { const th = document.createElement("th"); th.textContent = header; head.appendChild(th); });
+    columns.forEach(({ label, cls }) => head.appendChild(Object.assign(document.createElement("th"), { textContent: label, className: cls || "" })));
+    const body = element.createTBody();
     rows.forEach(({ cells, cls }) => {
-      const row = element.insertRow();
+      const row = body.insertRow();
       if (cls) row.className = cls;
-      cells.forEach(([text, cellCls]) => { const td = row.insertCell(); td.textContent = text; if (cellCls) td.className = cellCls; });
+      cells.forEach((content, i) => {
+        const td = row.insertCell();
+        td.className = columns[i].cls || "";
+        if (content instanceof Node) td.appendChild(content); else td.textContent = content;
+      });
     });
     return element;
+  }
+
+  function nameCell(name, first) {
+    const span = Object.assign(document.createElement("span"), { textContent: name });
+    if (first) span.appendChild(Object.assign(document.createElement("span"), { className: "badge", textContent: "1°" }));
+    return span;
   }
 
   function leaderboard() {
@@ -252,39 +299,46 @@
   function render() {
     const total = quiz.length;
     const players = Object.keys(state.players).length;
-    $("playersStat").textContent = `${players} giocator${players === 1 ? "e" : "i"}`;
-    $("questionStat").textContent = `Domanda ${state.n}/${total}`;
+    $("playersStat").textContent = players;
+    $("playersLabel").textContent = players === 1 ? "giocatore" : "giocatori";
+    $("questionStat").textContent = `${state.n}/${total}`;
     $("questionText").textContent = state.n
       ? (quiz[state.n - 1] || {}).domanda || ""
       : "Mostra il QR e aspetta che i giocatori entrino.";
+    $("questionText").classList.toggle("idle", !state.n);
     // opzioni con lettera, la giusta in verde (solo qui, i telefoni vedono solo A/B/C/D)
     const question = quiz[state.n - 1] || {};
     const right = (question.risposte || []).map((answer) => String(answer).trim().toUpperCase());
     $("options").replaceChildren(...(question.opzioni || []).map((option, i) => {
       const letter = String.fromCharCode(65 + i);
-      return Object.assign(document.createElement("li"), {
-        className: right.includes(letter) ? "right" : "", textContent: `${letter}. ${option}`,
-      });
+      const item = Object.assign(document.createElement("li"), { className: right.includes(letter) ? "right" : "" });
+      item.append(Object.assign(document.createElement("b"), { textContent: letter }), option);
+      return item;
     }));
 
     const next = $("next");
     if (!next.dataset.busy) {
       next.disabled = state.n >= total;
-      next.textContent = state.n >= total ? "Domande finite" : `▶ Domanda ${state.n + 1}`;
+      next.textContent = state.n >= total ? "Domande finite" : `Avvia domanda ${state.n + 1}`;
     }
 
     const current = state.answers.filter((answer) => answer.domanda === state.n);
-    $("live").replaceChildren(state.n
-      ? table(["", "Nome", "Risposta", "Secondi", "Punti"], current.map((answer) => ({
-          cls: (answer.corretta ? "yes" : "no") + (answer.primo ? " first" : ""),
-          cells: [[answer.corretta ? "✓" : "✗"], [(answer.primo ? "🏆 " : "") + answer.nome], [optionLabel(answer), "answer"],
-                  [answer.secondi.toFixed(1), "num"], [answer.punti, "num"]],
-        })))
-      : Object.assign(document.createElement("p"), { className: "muted", textContent: "Le risposte appariranno qui." }));
+    $("live").replaceChildren(table([
+      { label: "", col: "c-mark" }, { label: "Nome", cls: "name", col: "c-live-name" }, { label: "Risposta", cls: "answer" },
+      { label: "Sec", cls: "num hide-sm", col: "c-sec" }, { label: "Punti", cls: "num", col: "c-pts" },
+    ], current.map((answer) => ({
+      cls: (answer.corretta ? "yes" : "no") + (answer.primo ? " first" : ""),
+      cells: [Object.assign(document.createElement("span"), { className: "mark" }), nameCell(answer.nome, answer.primo),
+              optionLabel(answer), answer.secondi.toFixed(1), answer.punti],
+    })), state.n ? "Ancora nessuna risposta a questa domanda." : "Le risposte appariranno qui."));
 
-    $("board").replaceChildren(table(["#", "Nome", "Punti", "Giuste", "Secondi"], leaderboard().map((score, i) => ({
-      cells: [[i + 1], [score.nome], [score.punti, "num"], [score.giuste, "num"], [score.secondi.toFixed(1), "num"]],
-    }))));
+    $("board").replaceChildren(table([
+      { label: "#", cls: "pos", col: "c-pos" }, { label: "Nome", cls: "name" }, { label: "Punti", cls: "num", col: "c-pts" },
+      { label: "Giuste", cls: "num", col: "c-ok" }, { label: "Sec", cls: "num hide-sm", col: "c-sec" },
+    ], leaderboard().map((score, i) => ({
+      cls: i < 3 && score.punti ? "podium" : "",
+      cells: [i + 1, score.nome, score.punti, score.giuste, score.secondi.toFixed(1)],
+    })), "Nessun giocatore ancora."));
   }
 
   // ---------- QR / download ----------
@@ -344,9 +398,9 @@
     const right = (question.risposte || []).map((answer) => String(answer).trim().toUpperCase());
     $("options").replaceChildren(...(question.opzioni || []).map((option, i) => {
       const letter = String.fromCharCode(65 + i);
-      return Object.assign(document.createElement("li"), {
-        className: right.includes(letter) ? "right" : "", textContent: `${letter}. ${option}`,
-      });
+      const item = Object.assign(document.createElement("li"), { className: right.includes(letter) ? "right" : "" });
+      item.append(Object.assign(document.createElement("b"), { textContent: letter }), option);
+      return item;
     }));
 
     const next = $("next");
