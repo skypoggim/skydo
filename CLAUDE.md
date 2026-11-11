@@ -5,7 +5,7 @@ Quiz tra colleghi stile Mentimeter/Slido, ma con lo schermo fatto interamente in
 ## I due link
 
 - **Giocatori**: `https://skypoggim.github.io/skydo/` (`index.html`). QR fisso, va nella slide una volta per tutte. Nome e cognome chiesti una volta (localStorage, almeno due parole), poi solo risposte e classifica (primi 5, poi `⋮` e la propria posizione); all'apertura si ripresenta al conduttore.
-- **Conduttore**: `https://skypoggim.github.io/skydo/host.html`. Chiave `HOST_KEY` chiesta una volta (localStorage). QR scaricabile, "▶ Domanda", Live ✓/✗/🏆 con punti, Classifica completa, CSV, Reset.
+- **Conduttore**: `https://skypoggim.github.io/skydo/host.html`. Chiave `HOST_KEY` chiesta una volta (localStorage). QR scaricabile, "▶ Domanda", Live ✓/✗/🏆 con punti, Classifica completa, Excel (fogli Classifica e Risposte, SheetJS da cdnjs), Reset.
 
 Dietro c'è `server.py` su Render free (`render.yaml`, `https://skydo.onrender.com`): stdlib senza dipendenze, **una sola partita** in memoria. Env var `HOST_KEY` impostata nella dashboard Render (mai nel repo, che è pubblico). URL del server: costante `SERVER` in `index.html` e `host.html`.
 
@@ -27,5 +27,5 @@ Coerente con dataday: font Sky Text in `assets/fonts/` (copiato da dataday) e pa
 
 ## Vincoli
 
-- Render free dorme dopo 15 min senza richieste (risveglio ~1 min): aprire `host.html` qualche minuto prima, il suo polling lo tiene sveglio. Un riavvio svuota il server: `host.html` tiene la sua classifica, ma quella sui telefoni riparte da zero; a fine partita scaricare il CSV.
+- Render free dorme dopo 15 min senza richieste (risveglio ~1 min): aprire `host.html` qualche minuto prima, il suo polling lo tiene sveglio. Un riavvio svuota il server: `host.html` tiene la sua classifica, ma quella sui telefoni riparte da zero; a fine partita (e ogni tanto durante) scaricare l'Excel.
 - Una partita alla volta.

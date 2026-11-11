@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>skydo · conduttore</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   @font-face { font-family: 'Sky Text'; src: url('assets/fonts/Sky-Text-Regular.ttf') format('truetype'); font-weight: 400; }
   @font-face { font-family: 'Sky Text'; src: url('assets/fonts/Sky-Text-Bold.ttf') format('truetype'); font-weight: 700 900; }
@@ -145,7 +146,7 @@
         </div>
         <div class="row">
           <button id="showQr">QR</button>
-          <button id="csv">CSV</button>
+          <button id="xlsx">Excel</button>
           <button class="danger" id="reset">Reset</button>
         </div>
       </div>
@@ -459,7 +460,7 @@
   };
 
   $("reset").onclick = async () => {
-    if (!confirm("Azzerare la partita? Risposte e classifica verranno cancellate (scarica prima il CSV se ti serve).")) return;
+    if (!confirm("Azzerare la partita? Risposte e classifica verranno cancellate (scarica prima l'Excel se ti serve).")) return;
     try {
       while (pollBusy) await new Promise((resolve) => setTimeout(resolve, 50));
       pollBusy = true;
@@ -472,12 +473,21 @@
     render();
   };
 
-  $("csv").onclick = () => {
-    const columns = ["domanda", "nome", "risposta", "corretta", "secondi", "punti", "ts", "id"];
-    const quote = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
-    const lines = [columns.join(","), ...state.answers.map((answer) => columns.map((column) => quote(answer[column])).join(","))];
+  // Excel con due fogli: Classifica (com'è ora) e Risposte (tutte, per ricostruire la partita)
+  $("xlsx").onclick = () => {
+    const sheet = (rows, widths) => Object.assign(XLSX.utils.json_to_sheet(rows), { "!cols": widths.map((wch) => ({ wch })) });
+    const board = leaderboard().map((score, i) => ({
+      Posizione: i + 1, Nome: score.nome, Punti: score.punti, Giuste: score.giuste, Secondi: Math.round(score.secondi * 10) / 10,
+    }));
+    const answers = state.answers.map((answer) => ({
+      Domanda: answer.domanda, Nome: answer.nome, Risposta: optionLabel(answer), Corretta: answer.corretta ? "sì" : "no",
+      Primo: answer.primo ? "sì" : "", Secondi: answer.secondi, Punti: answer.punti, Ora: new Date(answer.ts).toLocaleTimeString("it-IT"),
+    }));
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet(board, [10, 30, 8, 8, 9]), "Classifica");
+    XLSX.utils.book_append_sheet(book, sheet(answers, [9, 30, 32, 9, 6, 9, 7, 10]), "Risposte");
     const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "");
-    download(`skydo_${stamp}.csv`, URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" })));
+    XLSX.writeFile(book, `skydo_${stamp}.xlsx`);
   };
 
   $("showQr").onclick = () => $("qrModal").classList.remove("hidden");
