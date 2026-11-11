@@ -21,6 +21,8 @@ Dietro c'è `server.py` su Render free (`render.yaml`, `https://skydo.onrender.c
 - Ricaricando `host.html` la partita viene ricostruita dal server.
 - Ntfy.sh scartato: limiti per IP (250 msg/giorno, burst ~60) e in ufficio 100 telefoni escono dallo stesso IP.
 
+- `stress.py`: 100 giocatori finti contro il server (iscrizione, attesa del via, classifica ogni 3 s, risposte), stampa tempi ed errori. Fa reset della partita prima e dopo: mai durante l'evento, e con `host.html` chiusa.
+
 ## Stile
 
 Coerente con dataday: font Sky Text in `assets/fonts/` (copiato da dataday) e palette chiara di `dataday/css/style.css` (`--primary #3252CC`, `--accent #C83640`, `--text #1C2040`).

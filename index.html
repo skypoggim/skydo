@@ -236,14 +236,27 @@
   setInterval(refreshBoard, 3000);
 
   // il server risponde appena parte un'altra domanda (long-polling), così pulsanti e campo cambiano subito al via
+  // ogni attesa si chiude comunque dopo 35 s (il server risponde entro 25): col telefono bloccato la connessione
+  // può morire senza errore, e senza timeout il telefono resterebbe fermo sulla domanda vecchia
+  let waitAbort = null;
   (async function waitQuestion() {
     for (;;) {
+      waitAbort = new AbortController();
+      const timer = setTimeout(() => waitAbort.abort(), 35000);
       try {
-        const data = await (await fetch(`${SERVER}/attesa?n=${current.n}`)).json();
+        const data = await (await fetch(`${SERVER}/attesa?n=${current.n}`, { signal: waitAbort.signal })).json();
         if (data.n !== current.n || data.scelte !== current.scelte) setQuestion(data.n, data.scelte);
-      } catch { await new Promise((resolve) => setTimeout(resolve, 2000)); }
+      } catch { await new Promise((resolve) => setTimeout(resolve, 1000)); }
+      clearTimeout(timer);
     }
   })();
+
+  // al risveglio del telefono: domanda e classifica subito, e si riapre un'attesa nuova
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) return;
+    refreshBoard();
+    if (waitAbort) waitAbort.abort();
+  });
 
   if (name && !isFullName(name)) {
     showJoin(FULL_NAME);  // nome salvato da una versione precedente, senza cognome
