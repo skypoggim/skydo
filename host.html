@@ -35,9 +35,13 @@
   h1 small { font-size: 16px; color: var(--muted); font-weight: 400; letter-spacing: 0; }
   h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); margin-bottom: 12px; }
   .muted { color: var(--muted); }
-  .server { font-size: 14px; display: inline-flex; align-items: center; gap: 8px; }
-  .server::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-  .server.ready::before { background: var(--ok); box-shadow: 0 0 0 4px rgba(30,142,90,.15); }
+  .server { font-size: 14px; display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 50px; }
+  .server::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); animation: pulse 1.2s infinite; }
+  .server.ok::before { background: var(--ok); box-shadow: 0 0 0 4px rgba(30,142,90,.15); animation: none; }
+  .server.down { color: var(--accent); font-weight: 700; background: rgba(200,54,64,.1); cursor: pointer; }
+  .server.down::before { background: var(--accent); }
+  .server a { color: inherit; }
+  @keyframes pulse { 50% { opacity: .3; } }
   input[type=password] {
     width: 100%; font: inherit; font-size: 20px; padding: 14px 16px; border-radius: 14px;
     border: 2px solid rgba(50,82,204,.15); background: #fff; color: var(--text); outline: none;
@@ -118,7 +122,7 @@
 <main>
   <header>
     <h1>sky<span>do</span> <small>conduttore</small></h1>
-    <span class="server muted" id="serverStatus">Sveglio il server…</span>
+    <span class="server muted" id="serverStatus" title="Tocca per riprovare">Sveglio il server…</span>
   </header>
 
   <!-- Accesso -->
@@ -201,17 +205,48 @@
     return data;
   }
 
-  async function wakeServer() {
-    for (let attempt = 0; attempt < 30; attempt++) {
-      try {
-        if ((await fetch(SERVER + "/")).ok) { $("serverStatus").textContent = "server pronto"; $("serverStatus").classList.add("ready"); return true; }
-      } catch {}
-      $("serverStatus").textContent = `Sveglio il server… (${(attempt + 1) * 5}s)`;
-      await new Promise((resolve) => setTimeout(resolve, 5000));
+  // stato del server in alto a destra: grigio = si sta svegliando, verde = risponde, rosso = non risponde da DOWN_AFTER ms
+  const DOWN_AFTER = 3000;
+  let lastOk = 0, waking = false;
+
+  function serverStatus(kind, text) {
+    const element = $("serverStatus");
+    element.className = "server " + (kind === "waking" ? "muted" : kind);
+    element.textContent = text;
+    if (kind === "down") {
+      const link = Object.assign(document.createElement("a"), { href: "https://dashboard.render.com/", target: "_blank", textContent: "Render" });
+      link.onclick = (e) => e.stopPropagation();
+      element.append(" · ", link);
     }
-    $("serverStatus").textContent = "Server non raggiungibile: ricarica la pagina";
+  }
+
+  function serverOk() {
+    lastOk = Date.now();
+    serverStatus("ok", "server pronto");
+  }
+
+  function serverFailed() {
+    if (!waking && Date.now() - lastOk > DOWN_AFTER) serverStatus("down", "server non raggiungibile · tocca per svegliarlo");
+  }
+
+  // Render free si accende da solo alla prima richiesta (~1 min): qui si insiste per 2,5 min mostrando l'attesa
+  async function wakeServer() {
+    if (waking) return false;
+    waking = true;
+    const start = Date.now();
+    while (Date.now() - start < 150000) {
+      try {
+        if ((await fetch(SERVER + "/")).ok) { waking = false; serverOk(); return true; }
+      } catch {}
+      serverStatus("waking", `Sveglio il server… ${Math.round((Date.now() - start) / 1000)}s`);
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+    waking = false;
+    serverStatus("down", "server spento · tocca per riprovare o riavvialo da");
     return false;
   }
+
+  $("serverStatus").onclick = () => { if ($("serverStatus").classList.contains("down")) wakeServer(); };
 
   async function poll() {
     if (pollBusy || !key) return;
@@ -219,18 +254,21 @@
     try {
       const resp = await fetch(`${SERVER}/msg?since=${state.since}&key=${encodeURIComponent(key)}`);
       if (resp.status === 403) { logout("Chiave non più valida"); return; }
-      if (!resp.ok) return;
+      if (!resp.ok) { serverFailed(); return; }
       const data = await resp.json();
+      serverOk();
       if (epoch !== null && data.epoch !== epoch) {
         // server riavviato (o reset da un altro dispositivo): la numerazione riparte, la partita in corso resta
         state.since = 0;
-        $("gameError").textContent = "Il server si è riavviato: continuo con le risposte già ricevute.";
+        $("gameError").textContent = "Il server si è riavviato: ho ripreso la domanda in corso, le risposte già ricevute restano.";
         loadQuiz();
+        // il server riparte senza domanda: la rimando, così i telefoni tornano subito ai pulsanti giusti
+        if (state.n) post("/question", { key, n: state.n }).catch(() => {});
       }
       epoch = data.epoch;
       data.messages.forEach(handle);
       if (data.messages.length) render();
-    } catch {} finally { pollBusy = false; }
+    } catch { serverFailed(); } finally { pollBusy = false; }
   }
 
   function handle(event) {
@@ -242,6 +280,10 @@
     const id = String(payload.id || "?");
     state.players[id] = String(payload.name || "?");
     if (payload.type !== "answer") return;
+    // dopo un riavvio il server dimentica chi ha già risposto: qui vale sempre la prima risposta e il primo 1°
+    const same = state.answers.filter((answer) => answer.domanda === payload.domanda);
+    if (same.some((answer) => answer.id === id)) return;
+    if (same.some((answer) => answer.primo)) payload.primo = false;
     // correttezza, secondi e punti li calcola il server (stessi numeri che vedono i telefoni)
     state.answers.push({
       domanda: payload.domanda, nome: state.players[id], risposta: payload.answer, corretta: payload.corretta,
