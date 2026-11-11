@@ -21,7 +21,7 @@ Dietro c'è `server.py` su Render free (`render.yaml`, `https://skydo.onrender.c
 - Ricaricando `host.html` la partita viene ricostruita dal server.
 - Ntfy.sh scartato: limiti per IP (250 msg/giorno, burst ~60) e in ufficio 100 telefoni escono dallo stesso IP.
 
-- `stress.py`: 100 giocatori finti contro il server (iscrizione, attesa del via, classifica ogni 3 s, risposte), stampa tempi ed errori. Fa reset della partita prima e dopo: mai durante l'evento, e con `host.html` chiusa.
+- `stress.py`: 100 giocatori finti contro il server (iscrizione, attesa del via, classifica ogni 3 s, risposte), stampa tempi ed errori. Fa reset della partita prima e dopo: mai durante l'evento, e con `host.html` chiusa. Va lanciato dal Mac (`~/Desktop/Codice/skydo`), **non dalla VM**: il Cloud NAT di GCP permette solo 64 connessioni verso lo stesso indirizzo, e il test fallisce con timeout di 40-80 s che non dipendono dal server. Esito 2026-11-11 su Render free: 100 giocatori, 3 domande, zero errori, risposte e classifica con mediana 0,2 s e p95 sotto 0,6 s, telefoni avvisati del via in 0,3-0,4 s.
 
 ## Stile
 
